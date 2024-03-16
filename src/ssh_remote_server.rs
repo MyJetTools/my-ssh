@@ -17,7 +17,7 @@ impl SshRemoteServer {
         }
     }
 
-    pub async fn add_remote_connection(
+    pub fn add_remote_connection(
         mut self,
         listen_host_port: impl Into<String>,
         remote_host: impl Into<String>,
