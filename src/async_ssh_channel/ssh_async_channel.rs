@@ -8,6 +8,12 @@ pub struct SshAsyncChannel {
     channel: ssh2::Channel,
 }
 
+impl SshAsyncChannel {
+    pub fn new(channel: ssh2::Channel) -> Self {
+        SshAsyncChannel { channel }
+    }
+}
+
 impl tokio::io::AsyncRead for SshAsyncChannel {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
