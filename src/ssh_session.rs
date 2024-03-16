@@ -1,23 +1,27 @@
-use std::net::TcpStream;
+use std::{net::TcpStream, sync::Arc};
 
 use ssh2::*;
 use tokio::sync::Mutex;
+
+use crate::SshCredentials;
 
 use super::SshSessionError;
 
 pub struct SshSession {
     ssh_session: Mutex<Option<Session>>,
-    ssh_host_port: String,
-    user_name: String,
+    credentials: Arc<SshCredentials>,
 }
 
 impl SshSession {
-    pub fn new(ssh_host_port: String, user_name: String) -> Self {
+    pub fn new(credentials: Arc<SshCredentials>) -> Self {
         Self {
             ssh_session: Mutex::new(None),
-            ssh_host_port,
-            user_name,
+            credentials,
         }
+    }
+
+    pub fn get_ssh_credentials(&self) -> &Arc<SshCredentials> {
+        &self.credentials
     }
 
     pub async fn connect_to_remote_host(
@@ -28,7 +32,7 @@ impl SshSession {
         let mut session_access = self.ssh_session.lock().await;
 
         if session_access.is_none() {
-            let session = init_ssh_session(self.ssh_host_port.as_str(), self.user_name.as_str())?;
+            let session = init_ssh_session(self.get_ssh_credentials())?;
             *session_access = Some(session);
         }
 
@@ -51,9 +55,9 @@ impl SshSession {
     }
 }
 
-pub fn init_ssh_session(ssh_host_port: &str, user_name: &str) -> Result<Session, SshSessionError> {
-    let tcp = TcpStream::connect(ssh_host_port)?;
-    println!("Connected to {}", ssh_host_port);
+pub fn init_ssh_session(ssh_credentials: &Arc<SshCredentials>) -> Result<Session, SshSessionError> {
+    let tcp = TcpStream::connect(ssh_credentials.get_host_port())?;
+    println!("Connected to {}", ssh_credentials.get_user_name());
     let mut ssh_session = Session::new()?;
 
     ssh_session.set_tcp_stream(tcp);
@@ -61,7 +65,7 @@ pub fn init_ssh_session(ssh_host_port: &str, user_name: &str) -> Result<Session,
 
     // Try to authenticate with the first identity in the agent.
 
-    ssh_session.userauth_agent(user_name)?;
+    ssh_session.userauth_agent(ssh_credentials.get_user_name())?;
 
     // Make sure we succeeded
     if !ssh_session.authenticated() {

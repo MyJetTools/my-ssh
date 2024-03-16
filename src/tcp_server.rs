@@ -8,15 +8,24 @@ use tokio::{
     },
 };
 
-use crate::async_ssh_channel::{SshChannelReadHalf, SshChannelWriteHalf};
+use crate::{
+    async_ssh_channel::{SshChannelReadHalf, SshChannelWriteHalf},
+    ssh_credentials,
+};
 
 use super::SshRemoteConnection;
 
-pub fn start(remote_connection: Arc<SshRemoteConnection>) {
-    tokio::spawn(server_loop(remote_connection));
+pub fn start(
+    remote_connection: Arc<SshRemoteConnection>,
+    ssh_credentials: Arc<ssh_credentials::SshCredentials>,
+) {
+    tokio::spawn(server_loop(remote_connection, ssh_credentials));
 }
 
-async fn server_loop(remote_connection: Arc<SshRemoteConnection>) {
+async fn server_loop(
+    remote_connection: Arc<SshRemoteConnection>,
+    ssh_credentials: Arc<ssh_credentials::SshCredentials>,
+) {
     let listener = TcpListener::bind(remote_connection.listen_host_port.as_str()).await;
 
     if let Err(err) = &listener {
@@ -34,8 +43,11 @@ async fn server_loop(remote_connection: Arc<SshRemoteConnection>) {
         let (mut socket, addr) = listener.accept().await.unwrap();
         println!("Accepted connection from: {:?}", addr);
 
-        let remote_channel = remote_connection
-            .ssh_session
+        let ssh_session = crate::SSH_SESSION_POOL
+            .get_or_create_ssh_session(&ssh_credentials)
+            .await;
+
+        let remote_channel = ssh_session
             .connect_to_remote_host(
                 &remote_connection.remote_host,
                 remote_connection.remote_port,
@@ -45,7 +57,7 @@ async fn server_loop(remote_connection: Arc<SshRemoteConnection>) {
         if let Err(err) = remote_channel {
             println!("Error connecting to remote host: {:?}", err);
             let _ = socket.shutdown().await;
-            remote_connection.ssh_session.disconnect().await;
+            ssh_session.disconnect().await;
             continue;
         }
 

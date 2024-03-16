@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 ssh2 = "*"
 tokio = { version = "*", features = ["full"] }
+lazy_static = "*"
+rust-extensions = { tag = "0.1.4", git = "https://github.com/MyJetTools/rust-extensions.git" }
