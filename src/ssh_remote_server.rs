@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
+use crate::SshSessionError;
+
 use super::{SshRemoteConnection, SshSession};
 
-pub struct SshPortMapServer {
+pub struct SshRemoteServer {
     remote_connections: Vec<Arc<SshRemoteConnection>>,
     ssh_session: Arc<SshSession>,
 }
 
-impl SshPortMapServer {
+impl SshRemoteServer {
     pub fn new(ssh_host_port: impl Into<String>, ssh_user_name: impl Into<String>) -> Self {
         Self {
             ssh_session: Arc::new(SshSession::new(ssh_host_port.into(), ssh_user_name.into())),
@@ -29,6 +31,16 @@ impl SshPortMapServer {
         );
         self.remote_connections.push(Arc::new(new_item));
         self
+    }
+
+    pub async fn connect_to_remote_host(
+        &self,
+        host: impl Into<String>,
+        port: u16,
+    ) -> Result<ssh2::Channel, SshSessionError> {
+        self.ssh_session
+            .connect_to_remote_host(host.into().as_str(), port)
+            .await
     }
 
     pub fn start(self) -> Self {

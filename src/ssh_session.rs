@@ -3,7 +3,7 @@ use std::net::TcpStream;
 use ssh2::*;
 use tokio::sync::Mutex;
 
-use super::{SshPortMapChannel, SshSessionError};
+use super::SshSessionError;
 
 pub struct SshSession {
     ssh_session: Mutex<Option<Session>>,
@@ -24,7 +24,7 @@ impl SshSession {
         &self,
         remote_host: &str,
         remote_port: u16,
-    ) -> Result<SshPortMapChannel, SshSessionError> {
+    ) -> Result<ssh2::Channel, SshSessionError> {
         let mut session_access = self.ssh_session.lock().await;
 
         if session_access.is_none() {
@@ -34,7 +34,7 @@ impl SshSession {
 
         let ssh_session = session_access.as_ref().unwrap();
 
-        let result = SshPortMapChannel::connect(ssh_session, remote_host, remote_port).await;
+        let result = crate::async_ssh_channel::connect(ssh_session, remote_host, remote_port).await;
 
         match result {
             Ok(channel) => Ok(channel),

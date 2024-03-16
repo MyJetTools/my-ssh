@@ -8,7 +8,9 @@ use tokio::{
     },
 };
 
-use super::{SshPortMapChannel, SshRemoteConnection};
+use crate::async_ssh_channel::{SshChannelReadHalf, SshChannelWriteHalf};
+
+use super::SshRemoteConnection;
 
 pub fn start(remote_connection: Arc<SshRemoteConnection>) {
     tokio::spawn(server_loop(remote_connection));
@@ -49,18 +51,18 @@ async fn server_loop(remote_connection: Arc<SshRemoteConnection>) {
 
         let remote_channel = remote_channel.unwrap();
 
-        let remote_channel = Arc::new(remote_channel);
+        let (ssh_reader, ssh_writer) = crate::async_ssh_channel::split(remote_channel);
 
         let (reader, writer) = socket.into_split();
 
-        tokio::spawn(from_tcp_to_ssh_stream(reader, remote_channel.clone()));
-        tokio::spawn(from_ssh_to_tcp_stream(writer, remote_channel.clone()));
+        tokio::spawn(from_tcp_to_ssh_stream(reader, ssh_writer));
+        tokio::spawn(from_ssh_to_tcp_stream(writer, ssh_reader));
     }
 }
 
 async fn from_tcp_to_ssh_stream(
     mut tcp_stream: OwnedReadHalf,
-    ssh_channel: Arc<SshPortMapChannel>,
+    mut ssh_channel: SshChannelWriteHalf,
 ) {
     let mut buf = Vec::with_capacity(1024 * 1024);
     unsafe {
@@ -70,17 +72,17 @@ async fn from_tcp_to_ssh_stream(
     loop {
         let result = tcp_stream.read(&mut buf).await;
         if result.is_err() {
-            ssh_channel.close().await;
+            ssh_channel.shutdown();
             return;
         }
 
         let size = result.unwrap();
         if size == 0 {
-            ssh_channel.close().await;
+            ssh_channel.shutdown();
             return;
         }
 
-        let result = ssh_channel.write_to_channel(&buf[..size]).await;
+        let result = ssh_channel.write(&buf[..size]).await;
 
         if result.is_err() {
             return;
@@ -90,7 +92,7 @@ async fn from_tcp_to_ssh_stream(
 
 async fn from_ssh_to_tcp_stream(
     mut tcp_writer: OwnedWriteHalf,
-    ssh_channel: Arc<SshPortMapChannel>,
+    mut ssh_channel: SshChannelReadHalf,
 ) {
     let mut buf = Vec::with_capacity(1024 * 1024);
     unsafe {
@@ -98,7 +100,7 @@ async fn from_ssh_to_tcp_stream(
     }
 
     loop {
-        let result = ssh_channel.read_from_channel(&mut buf).await;
+        let result = ssh_channel.read(&mut buf).await;
 
         if result.is_err() {
             let _ = tcp_writer.shutdown().await;

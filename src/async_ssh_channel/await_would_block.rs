@@ -11,7 +11,7 @@ pub async fn await_would_block<TResult>(
             Err(e) => match e.code() {
                 ssh2::ErrorCode::Session(code) => {
                     if code == -37 {
-                        tokio::time::sleep(Duration::from_millis(1)).await;
+                        tokio::time::sleep(Duration::from_millis(10)).await;
                         continue;
                     }
                 }
