@@ -10,3 +10,5 @@ mod ssh_channel_utils;
 pub use connect::*;
 mod await_would_block;
 pub use await_would_block::*;
+mod ssh_async_channel;
+pub use ssh_async_channel::*;
