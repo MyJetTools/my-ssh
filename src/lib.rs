@@ -18,6 +18,8 @@ pub use ssh_sessions_pool::*;
 mod ssh_credentials;
 pub use ssh_credentials::*;
 
+pub extern crate ssh2;
+
 lazy_static::lazy_static! {
     pub static ref SSH_SESSION_POOL: Arc<SshSessionsPool> = {
         Arc::new(SshSessionsPool::new())
