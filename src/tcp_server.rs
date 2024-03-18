@@ -1,17 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{
-        tcp::{OwnedReadHalf, OwnedWriteHalf},
-        *,
-    },
-};
+use tokio::{io::AsyncWriteExt, net::TcpListener};
 
-use crate::{
-    async_ssh_channel::{SshChannelReadHalf, SshChannelWriteHalf},
-    ssh_credentials,
-};
+use crate::{ssh_credentials, SshAsyncChannel};
 
 use super::SshRemoteConnection;
 
@@ -64,7 +55,7 @@ async fn server_loop(
 
         let remote_channel = remote_channel.unwrap();
 
-        let (ssh_reader, ssh_writer) = crate::async_ssh_channel::split(remote_channel);
+        let (ssh_reader, ssh_writer) = futures::AsyncReadExt::split(remote_channel);
 
         let (reader, writer) = socket.into_split();
 
@@ -74,9 +65,10 @@ async fn server_loop(
 }
 
 async fn from_tcp_to_ssh_stream(
-    mut tcp_stream: OwnedReadHalf,
-    mut ssh_channel: SshChannelWriteHalf,
+    mut tcp_stream: impl tokio::io::AsyncReadExt + Unpin,
+    mut ssh_channel: futures::io::WriteHalf<SshAsyncChannel>,
 ) {
+    use futures::AsyncWriteExt;
     let mut buf = Vec::with_capacity(1024 * 1024);
     unsafe {
         buf.set_len(buf.capacity());
@@ -85,13 +77,13 @@ async fn from_tcp_to_ssh_stream(
     loop {
         let result = tcp_stream.read(&mut buf).await;
         if result.is_err() {
-            ssh_channel.shutdown();
+            let _ = ssh_channel.close().await;
             return;
         }
 
         let size = result.unwrap();
         if size == 0 {
-            ssh_channel.shutdown();
+            let _ = ssh_channel.close().await;
             return;
         }
 
@@ -104,9 +96,11 @@ async fn from_tcp_to_ssh_stream(
 }
 
 async fn from_ssh_to_tcp_stream(
-    mut tcp_writer: OwnedWriteHalf,
-    mut ssh_channel: SshChannelReadHalf,
+    mut tcp_writer: impl tokio::io::AsyncWriteExt + Unpin,
+    mut ssh_channel: futures::io::ReadHalf<SshAsyncChannel>,
 ) {
+    use futures::AsyncReadExt;
+
     let mut buf = Vec::with_capacity(1024 * 1024);
     unsafe {
         buf.set_len(buf.capacity());

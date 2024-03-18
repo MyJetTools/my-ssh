@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{SshCredentials, SshSessionError};
+use crate::{SshAsyncChannel, SshCredentials, SshSessionError};
 
 use super::SshRemoteConnection;
 
@@ -34,7 +34,7 @@ impl SshRemoteServer {
         host: impl Into<String>,
         port: u16,
         timeout: std::time::Duration,
-    ) -> Result<ssh2::Channel, SshSessionError> {
+    ) -> Result<SshAsyncChannel, SshSessionError> {
         let ssh_session = crate::SSH_SESSION_POOL
             .get_or_create_ssh_session(&self.ssh_credentials)
             .await;

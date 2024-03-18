@@ -1,15 +1,16 @@
-use std::{net::TcpStream, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
+use async_ssh2_lite::{AsyncSession, AsyncSessionStream};
 use rust_extensions::{date_time::DateTimeAsMicroseconds, UnsafeValue};
-use ssh2::*;
+
 use tokio::sync::Mutex;
 
-use crate::SshCredentials;
+use crate::{SshAsyncChannel, SshAsyncSession, SshCredentials};
 
 use super::SshSessionError;
 
 pub struct SshSession {
-    ssh_session: Mutex<Option<Session>>,
+    ssh_session: Mutex<Option<SshAsyncSession>>,
     credentials: Arc<SshCredentials>,
     pub id: i64,
     connected: UnsafeValue<bool>,
@@ -34,21 +35,19 @@ impl SshSession {
         remote_host: &str,
         remote_port: u16,
         connection_timeout: Duration,
-    ) -> Result<ssh2::Channel, SshSessionError> {
+    ) -> Result<SshAsyncChannel, SshSessionError> {
         let mut session_access = self.ssh_session.lock().await;
 
         if session_access.is_none() {
-            let session = init_ssh_session(self.get_ssh_credentials())?;
+            let session = init_ssh_session(self.get_ssh_credentials()).await?;
             *session_access = Some(session);
         }
 
         let ssh_session = session_access.as_ref().unwrap();
 
-        let result = tokio::time::timeout(
-            connection_timeout,
-            crate::async_ssh_channel::connect(ssh_session, remote_host, remote_port),
-        )
-        .await;
+        let ssh_channel = ssh_session.channel_direct_tcpip(remote_host, remote_port, None);
+
+        let result = tokio::time::timeout(connection_timeout, ssh_channel).await;
 
         if result.is_err() {
             execute_disconnect(&mut session_access, &self.connected);
@@ -69,7 +68,7 @@ impl SshSession {
         remote_host: &str,
         remote_port: u16,
         connection_timeout: Duration,
-    ) -> Result<ssh2::Channel, SshSessionError> {
+    ) -> Result<SshAsyncChannel, SshSessionError> {
         let result = self
             .try_to_connect_to_remote_host(remote_host, remote_port, connection_timeout)
             .await;
@@ -95,29 +94,65 @@ impl SshSession {
     }
 }
 
-fn execute_disconnect(session: &mut Option<Session>, connected: &UnsafeValue<bool>) {
+fn execute_disconnect(session: &mut Option<SshAsyncSession>, connected: &UnsafeValue<bool>) {
     *session = None;
     connected.set_value(false);
 }
 
-pub fn init_ssh_session(ssh_credentials: &Arc<SshCredentials>) -> Result<Session, SshSessionError> {
-    let tcp = TcpStream::connect(ssh_credentials.get_host_port())?;
+pub async fn init_ssh_session(
+    ssh_credentials: &Arc<SshCredentials>,
+) -> Result<SshAsyncSession, SshSessionError> {
+    let mut session = AsyncSession::<async_ssh2_lite::TokioTcpStream>::connect(
+        ssh_credentials.get_host_port().clone(),
+        None,
+    )
+    .await?;
     println!("Connected to {}", ssh_credentials.get_user_name());
-    let mut ssh_session = Session::new()?;
 
-    ssh_session.set_tcp_stream(tcp);
-    ssh_session.handshake()?;
+    run_session_user_auth_agent_with_try_next(&mut session, ssh_credentials.get_user_name())
+        .await?;
 
-    // Try to authenticate with the first identity in the agent.
+    Ok(session)
+}
 
-    ssh_session.userauth_agent(ssh_credentials.get_user_name())?;
+async fn run_session_user_auth_agent_with_try_next<
+    S: AsyncSessionStream + Send + Sync + 'static,
+>(
+    session: &mut AsyncSession<S>,
+    user_name: &str,
+) -> Result<(), SshSessionError> {
+    session.handshake().await?;
 
-    // Make sure we succeeded
-    if !ssh_session.authenticated() {
-        return Err(SshSessionError::SshAuthenticationError);
+    match session.userauth_agent_with_try_next(user_name).await {
+        Ok(_) => {
+            assert!(session.authenticated());
+        }
+        Err(err) => {
+            eprintln!("session.userauth_agent_with_try_next failed, err:{err}");
+            assert!(!session.authenticated());
+        }
     }
 
-    ssh_session.set_blocking(false);
-
-    Ok(ssh_session)
+    Ok(())
 }
+
+/*
+async fn run_session_user_auth_agent<S: AsyncSessionStream + Send + Sync + 'static>(
+    session: &mut AsyncSession<S>,
+    user_name: &str,
+) -> Result<(), SshSessionError> {
+    session.handshake().await?;
+
+    match session.userauth_agent(user_name).await {
+        Ok(_) => {
+            assert!(session.authenticated());
+        }
+        Err(err) => {
+            eprintln!("session.userauth_agent failed, err:{err}");
+            assert!(!session.authenticated());
+        }
+    }
+
+    Ok(())
+}
+ */

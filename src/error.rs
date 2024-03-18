@@ -2,13 +2,13 @@
 pub enum SshSessionError {
     SshSessionIsNotActive,
     StdIoStreamError(std::io::Error),
-    SshError(ssh2::Error),
+    SshError(async_ssh2_lite::Error),
     SshAuthenticationError,
     Timeout,
 }
 
-impl From<ssh2::Error> for SshSessionError {
-    fn from(error: ssh2::Error) -> Self {
+impl From<async_ssh2_lite::Error> for SshSessionError {
+    fn from(error: async_ssh2_lite::Error) -> Self {
         SshSessionError::SshError(error)
     }
 }
