@@ -43,13 +43,13 @@ impl SshSessionsPool {
         ssh_session
     }
 
-    pub async fn disconnect_ssh_session(&self, ssh_credentials: &Arc<SshCredentials>) {
+    pub async fn remove_from_pool(&self, to_remove: &SshSession) {
         let mut write_access = self.sessions.write().await;
 
         let mut i = None;
 
         for (no, itm) in write_access.iter().enumerate() {
-            if itm.get_ssh_credentials().are_same(ssh_credentials.as_ref()) {
+            if itm.id == to_remove.id {
                 i = Some(no);
                 break;
             }

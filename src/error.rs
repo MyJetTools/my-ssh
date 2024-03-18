@@ -4,6 +4,7 @@ pub enum SshSessionError {
     StdIoStreamError(std::io::Error),
     SshError(ssh2::Error),
     SshAuthenticationError,
+    Timeout,
 }
 
 impl From<ssh2::Error> for SshSessionError {

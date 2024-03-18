@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -51,6 +51,7 @@ async fn server_loop(
             .connect_to_remote_host(
                 &remote_connection.remote_host,
                 remote_connection.remote_port,
+                Duration::from_secs(5),
             )
             .await;
 

@@ -1,5 +1,6 @@
-use std::{net::TcpStream, sync::Arc};
+use std::{net::TcpStream, sync::Arc, time::Duration};
 
+use rust_extensions::{date_time::DateTimeAsMicroseconds, UnsafeValue};
 use ssh2::*;
 use tokio::sync::Mutex;
 
@@ -10,6 +11,8 @@ use super::SshSessionError;
 pub struct SshSession {
     ssh_session: Mutex<Option<Session>>,
     credentials: Arc<SshCredentials>,
+    pub id: i64,
+    connected: UnsafeValue<bool>,
 }
 
 impl SshSession {
@@ -17,6 +20,8 @@ impl SshSession {
         Self {
             ssh_session: Mutex::new(None),
             credentials,
+            id: DateTimeAsMicroseconds::now().unix_microseconds,
+            connected: UnsafeValue::new(true),
         }
     }
 
@@ -24,10 +29,11 @@ impl SshSession {
         &self.credentials
     }
 
-    pub async fn connect_to_remote_host(
+    async fn try_to_connect_to_remote_host(
         &self,
         remote_host: &str,
         remote_port: u16,
+        connection_timeout: Duration,
     ) -> Result<ssh2::Channel, SshSessionError> {
         let mut session_access = self.ssh_session.lock().await;
 
@@ -38,21 +44,60 @@ impl SshSession {
 
         let ssh_session = session_access.as_ref().unwrap();
 
-        let result = crate::async_ssh_channel::connect(ssh_session, remote_host, remote_port).await;
+        let result = tokio::time::timeout(
+            connection_timeout,
+            crate::async_ssh_channel::connect(ssh_session, remote_host, remote_port),
+        )
+        .await;
 
-        match result {
-            Ok(channel) => Ok(channel),
+        if result.is_err() {
+            execute_disconnect(&mut session_access, &self.connected);
+            return Err(SshSessionError::Timeout);
+        }
+
+        match result.unwrap() {
+            Ok(channel) => return Ok(channel),
             Err(e) => {
-                *session_access = None;
+                execute_disconnect(&mut session_access, &self.connected);
                 return Err(SshSessionError::SshError(e));
             }
         }
     }
 
-    pub async fn disconnect(&self) {
-        let mut write_access = self.ssh_session.lock().await;
-        *write_access = None;
+    pub async fn connect_to_remote_host(
+        &self,
+        remote_host: &str,
+        remote_port: u16,
+        connection_timeout: Duration,
+    ) -> Result<ssh2::Channel, SshSessionError> {
+        let result = self
+            .try_to_connect_to_remote_host(remote_host, remote_port, connection_timeout)
+            .await;
+
+        if result.is_err() {
+            crate::SSH_SESSION_POOL.remove_from_pool(self).await;
+        }
+
+        result
     }
+
+    pub async fn disconnect(&self) {
+        {
+            let mut write_access = self.ssh_session.lock().await;
+            execute_disconnect(&mut write_access, &self.connected);
+        }
+
+        crate::SSH_SESSION_POOL.remove_from_pool(self).await;
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.connected.get_value()
+    }
+}
+
+fn execute_disconnect(session: &mut Option<Session>, connected: &UnsafeValue<bool>) {
+    *session = None;
+    connected.set_value(false);
 }
 
 pub fn init_ssh_session(ssh_credentials: &Arc<SshCredentials>) -> Result<Session, SshSessionError> {

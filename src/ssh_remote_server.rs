@@ -33,13 +33,14 @@ impl SshRemoteServer {
         &self,
         host: impl Into<String>,
         port: u16,
+        timeout: std::time::Duration,
     ) -> Result<ssh2::Channel, SshSessionError> {
         let ssh_session = crate::SSH_SESSION_POOL
             .get_or_create_ssh_session(&self.ssh_credentials)
             .await;
 
         ssh_session
-            .connect_to_remote_host(host.into().as_str(), port)
+            .connect_to_remote_host(host.into().as_str(), port, timeout)
             .await
     }
 
