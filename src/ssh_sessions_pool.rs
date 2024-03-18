@@ -42,4 +42,21 @@ impl SshSessionsPool {
 
         ssh_session
     }
+
+    pub async fn disconnect_ssh_session(&self, ssh_credentials: &Arc<SshCredentials>) {
+        let mut write_access = self.sessions.write().await;
+
+        let mut i = None;
+
+        for (no, itm) in write_access.iter().enumerate() {
+            if itm.get_ssh_credentials().are_same(ssh_credentials.as_ref()) {
+                i = Some(no);
+                break;
+            }
+        }
+
+        if let Some(i) = i {
+            write_access.remove(i);
+        }
+    }
 }
