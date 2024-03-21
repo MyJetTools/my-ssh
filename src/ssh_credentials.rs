@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub enum SshCredentials {
     SshAgent {
         ssh_host_port: std::net::SocketAddr,
