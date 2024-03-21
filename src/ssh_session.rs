@@ -130,6 +130,26 @@ impl SshSession {
         Ok(contents)
     }
 
+    pub async fn execute_command(&self, command: &str) -> Result<String, SshSessionError> {
+        let mut session_access = self.ssh_session.lock().await;
+
+        if session_access.is_none() {
+            let session = init_ssh_session(self.get_ssh_credentials()).await?;
+            *session_access = Some(session);
+        }
+
+        let ssh_session = session_access.as_ref().unwrap();
+
+        let mut channel = ssh_session.channel_session().await?;
+
+        channel.exec(command).await?;
+
+        let mut result = String::new();
+        channel.read_to_string(&mut result).await?;
+
+        Ok(result)
+    }
+
     pub fn is_connected(&self) -> bool {
         self.connected.get_value()
     }
