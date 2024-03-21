@@ -107,7 +107,6 @@ pub async fn init_ssh_session(
         None,
     )
     .await?;
-    println!("Connected to {}", ssh_credentials.get_user_name());
 
     run_session_user_auth_agent_with_try_next(&mut session, ssh_credentials.get_user_name())
         .await?;
