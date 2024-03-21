@@ -1,6 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use async_ssh2_lite::{AsyncSession, AsyncSessionStream};
+use futures::AsyncReadExt;
 use rust_extensions::{date_time::DateTimeAsMicroseconds, UnsafeValue};
 
 use tokio::sync::Mutex;
@@ -87,6 +88,27 @@ impl SshSession {
         }
 
         crate::SSH_SESSION_POOL.remove_from_pool(self).await;
+    }
+
+    pub async fn download_remote_file(&self, path: &str) -> Result<Vec<u8>, SshSessionError> {
+        let mut session_access = self.ssh_session.lock().await;
+
+        if session_access.is_none() {
+            let session = init_ssh_session(self.get_ssh_credentials()).await?;
+            *session_access = Some(session);
+        }
+
+        let ssh_session = session_access.as_ref().unwrap();
+
+        let (mut remote_file, _) = ssh_session.scp_recv(Path::new(path)).await?;
+
+        let mut contents = Vec::new();
+        remote_file.read_to_end(&mut contents).await?;
+        remote_file.send_eof().await?;
+        remote_file.wait_eof().await?;
+        remote_file.close().await?;
+        remote_file.wait_close().await?;
+        Ok(contents)
     }
 
     pub fn is_connected(&self) -> bool {

@@ -38,7 +38,6 @@ impl SshStream {
     }
 
     pub async fn read_from_channel(&self, data: &mut [u8]) -> Result<usize, SshSessionError> {
-        println!("Here");
         let mut write_access = self.channel.lock().await;
         match write_access.as_mut() {
             Some(channel) => {
@@ -49,29 +48,6 @@ impl SshStream {
                 return Err(SshSessionError::SshSessionIsNotActive);
             }
         }
-        /*
-        loop {
-            let result = {
-                match write_access.as_mut() {
-                    Some(channel) => channel.read(data),
-                    None => {
-                        return Err(SshSessionError::SshSessionIsNotActive);
-                    }
-                }
-            };
-
-            match result {
-                Ok(size) => return Ok(size),
-                Err(err) => {
-                    if would_block_std_error(&err) {
-                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                    } else {
-                        return Err(SshSessionError::StdIoStreamError(err));
-                    }
-                }
-            }
-        }
-         */
     }
 
     pub async fn shutdown(&self) {
