@@ -20,9 +20,11 @@ impl SshRemoteHost {
     pub fn to_socket_addr(&self) -> std::net::SocketAddr {
         std::net::SocketAddr::new(self.host.as_str().parse().unwrap(), self.port)
     }
-}
 
-impl SshRemoteHost {
+    pub fn to_string(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+
     pub fn are_same(&self, other: &SshRemoteHost) -> bool {
         self.host == other.host && self.port == other.port
     }
