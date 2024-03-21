@@ -1,7 +1,9 @@
+use crate::SshRemoteHost;
+
 #[derive(Debug)]
 pub enum SshCredentials {
     SshAgent {
-        ssh_host_port: String,
+        ssh_host_port: SshRemoteHost,
         ssh_user_name: String,
     },
 }
@@ -16,12 +18,14 @@ impl SshCredentials {
                 SshCredentials::SshAgent {
                     ssh_host_port: other_ssh_host_port,
                     ssh_user_name: other_user_name,
-                } => ssh_host_port == other_ssh_host_port && ssh_user_name == other_user_name,
+                } => {
+                    ssh_host_port.are_same(other_ssh_host_port) && ssh_user_name == other_user_name
+                }
             },
         }
     }
 
-    pub fn get_host_port(&self) -> &str {
+    pub fn get_host_port(&self) -> &SshRemoteHost {
         match self {
             SshCredentials::SshAgent { ssh_host_port, .. } => ssh_host_port,
         }

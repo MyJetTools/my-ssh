@@ -39,11 +39,7 @@ async fn server_loop(
             .await;
 
         let remote_channel = ssh_session
-            .connect_to_remote_host(
-                &remote_connection.remote_host,
-                remote_connection.remote_port,
-                Duration::from_secs(5),
-            )
+            .connect_to_remote_host(&remote_connection.remote_host, Duration::from_secs(5))
             .await;
 
         if let Err(err) = remote_channel {

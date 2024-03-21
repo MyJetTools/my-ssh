@@ -1,4 +1,4 @@
-use std::{path::Path, str::FromStr, sync::Arc, time::Duration};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use async_ssh2_lite::{AsyncSession, AsyncSessionStream};
 use futures::AsyncReadExt;
@@ -9,6 +9,24 @@ use tokio::sync::Mutex;
 use crate::{SshAsyncChannel, SshAsyncSession, SshCredentials};
 
 use super::SshSessionError;
+
+#[derive(Debug, Clone)]
+pub struct SshRemoteHost {
+    pub host: String,
+    pub port: u16,
+}
+
+impl SshRemoteHost {
+    pub fn to_socket_addr(&self) -> std::net::SocketAddr {
+        std::net::SocketAddr::new(self.host.as_str().parse().unwrap(), self.port)
+    }
+}
+
+impl SshRemoteHost {
+    pub fn are_same(&self, other: &SshRemoteHost) -> bool {
+        self.host == other.host && self.port == other.port
+    }
+}
 
 pub struct SshSession {
     ssh_session: Mutex<Option<SshAsyncSession>>,
@@ -33,8 +51,7 @@ impl SshSession {
 
     async fn try_to_connect_to_remote_host(
         &self,
-        remote_host: &str,
-        remote_port: u16,
+        remote_host: &SshRemoteHost,
         connection_timeout: Duration,
     ) -> Result<SshAsyncChannel, SshSessionError> {
         let mut session_access = self.ssh_session.lock().await;
@@ -46,7 +63,8 @@ impl SshSession {
 
         let ssh_session = session_access.as_ref().unwrap();
 
-        let ssh_channel = ssh_session.channel_direct_tcpip(remote_host, remote_port, None);
+        let ssh_channel =
+            ssh_session.channel_direct_tcpip(&remote_host.host, remote_host.port, None);
 
         let result = tokio::time::timeout(connection_timeout, ssh_channel).await;
 
@@ -66,12 +84,11 @@ impl SshSession {
 
     pub async fn connect_to_remote_host(
         &self,
-        remote_host: &str,
-        remote_port: u16,
+        remote_host: &SshRemoteHost,
         connection_timeout: Duration,
     ) -> Result<SshAsyncChannel, SshSessionError> {
         let result = self
-            .try_to_connect_to_remote_host(remote_host, remote_port, connection_timeout)
+            .try_to_connect_to_remote_host(remote_host, connection_timeout)
             .await;
 
         if result.is_err() {
@@ -125,7 +142,7 @@ pub async fn init_ssh_session(
     ssh_credentials: &Arc<SshCredentials>,
 ) -> Result<SshAsyncSession, SshSessionError> {
     let mut session = AsyncSession::<async_ssh2_lite::TokioTcpStream>::connect(
-        std::net::SocketAddr::from_str(ssh_credentials.get_host_port()).unwrap(),
+        ssh_credentials.get_host_port().to_socket_addr(),
         None,
     )
     .await?;
