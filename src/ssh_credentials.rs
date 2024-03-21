@@ -9,6 +9,17 @@ pub enum SshCredentials {
 }
 
 impl SshCredentials {
+    pub fn to_string(&self) -> String {
+        match self {
+            SshCredentials::SshAgent {
+                ssh_host_port,
+                ssh_user_name,
+            } => format!(
+                "{}@{}:{}",
+                ssh_user_name, ssh_host_port.host, ssh_host_port.port
+            ),
+        }
+    }
     pub fn are_same(&self, other: &SshCredentials) -> bool {
         match self {
             SshCredentials::SshAgent {
