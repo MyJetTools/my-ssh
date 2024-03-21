@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum SshCredentials {
     SshAgent {
-        ssh_host_port: std::net::SocketAddr,
+        ssh_host_port: String,
         ssh_user_name: String,
     },
 }
@@ -21,7 +21,7 @@ impl SshCredentials {
         }
     }
 
-    pub fn get_host_port(&self) -> &std::net::SocketAddr {
+    pub fn get_host_port(&self) -> &str {
         match self {
             SshCredentials::SshAgent { ssh_host_port, .. } => ssh_host_port,
         }

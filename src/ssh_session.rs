@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{path::Path, str::FromStr, sync::Arc, time::Duration};
 
 use async_ssh2_lite::{AsyncSession, AsyncSessionStream};
 use futures::AsyncReadExt;
@@ -125,7 +125,7 @@ pub async fn init_ssh_session(
     ssh_credentials: &Arc<SshCredentials>,
 ) -> Result<SshAsyncSession, SshSessionError> {
     let mut session = AsyncSession::<async_ssh2_lite::TokioTcpStream>::connect(
-        ssh_credentials.get_host_port().clone(),
+        std::net::SocketAddr::from_str(ssh_credentials.get_host_port()).unwrap(),
         None,
     )
     .await?;
