@@ -47,6 +47,16 @@ impl SshCredentials {
         }
     }
 
+    pub fn get_host_port_as_string(&self) -> String {
+        match self {
+            SshCredentials::SshAgent {
+                ssh_remote_host,
+                ssh_remote_port,
+                ..
+            } => format!("{}:{}", ssh_remote_host, ssh_remote_port),
+        }
+    }
+
     pub fn get_user_name(&self) -> &str {
         match self {
             SshCredentials::SshAgent { ssh_user_name, .. } => ssh_user_name.as_str(),
