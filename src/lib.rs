@@ -26,6 +26,8 @@ pub type SshAsyncSession = async_ssh2_lite::AsyncSession<async_ssh2_lite::TokioT
 
 pub type SshAsyncChannel = async_ssh2_lite::AsyncChannel<async_ssh2_lite::TokioTcpStream>;
 
+pub extern crate ssh2;
+
 lazy_static::lazy_static! {
     pub static ref SSH_SESSION_POOL: Arc<SshSessionsPool> = {
         Arc::new(SshSessionsPool::new())
