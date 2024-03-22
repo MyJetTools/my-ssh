@@ -69,7 +69,24 @@ impl SshSession {
     ) -> Result<Vec<u8>, SshSessionError> {
         let mut write_access = self.inner.lock().await;
         let ssh_session = write_access.get(&self.credentials).await?;
-        let future = ssh_session.download_remote_file(path);
+
+        let future = if path.starts_with("~") {
+            if write_access.home_variable.is_none() {
+                let home_variable = ssh_session.execute_command("echo $HOME");
+
+                let home_variable = self
+                    .execute_with_timeout(&mut write_access, home_variable, execute_timeout)
+                    .await?;
+                write_access.home_variable = Some(home_variable.trim().to_string());
+            }
+
+            let path = path.replace("~", write_access.home_variable.as_ref().unwrap());
+
+            ssh_session.download_remote_file(path.into())
+        } else {
+            ssh_session.download_remote_file(path.into())
+        };
+
         self.execute_with_timeout(&mut write_access, future, execute_timeout)
             .await
     }

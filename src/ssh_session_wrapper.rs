@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use futures::AsyncReadExt;
+use rust_extensions::StrOrString;
 
 use crate::{SshAsyncChannel, SshAsyncSession, SshRemoteHost, SshSessionError};
 
@@ -11,8 +12,11 @@ impl SshSessionWrapper {
     pub fn new(ssh_session: SshAsyncSession) -> Self {
         Self { ssh_session }
     }
-    pub async fn download_remote_file(&self, path: &str) -> Result<Vec<u8>, SshSessionError> {
-        let (mut remote_file, _) = self.ssh_session.scp_recv(Path::new(path)).await?;
+    pub async fn download_remote_file<'s>(
+        &self,
+        path: StrOrString<'s>,
+    ) -> Result<Vec<u8>, SshSessionError> {
+        let (mut remote_file, _) = self.ssh_session.scp_recv(Path::new(path.as_str())).await?;
 
         let mut contents = Vec::new();
         remote_file.read_to_end(&mut contents).await?;
