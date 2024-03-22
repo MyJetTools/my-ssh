@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 
-use crate::{ssh_credentials, SshAsyncChannel};
+use crate::{ssh_credentials, SshAsyncChannel, SshSession};
 
 use super::SshRemoteConnection;
 
@@ -34,9 +34,7 @@ async fn server_loop(
         let (mut socket, addr) = listener.accept().await.unwrap();
         println!("Accepted connection from: {:?}", addr);
 
-        let ssh_session = crate::SSH_SESSION_POOL
-            .get_or_create_ssh_session(&ssh_credentials)
-            .await;
+        let ssh_session = SshSession::new(ssh_credentials.clone());
 
         let remote_channel = ssh_session
             .connect_to_remote_host(&remote_connection.remote_host, Duration::from_secs(5))

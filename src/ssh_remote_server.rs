@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{SshAsyncChannel, SshCredentials, SshRemoteConnection, SshRemoteHost, SshSessionError};
+use crate::{
+    SshAsyncChannel, SshCredentials, SshRemoteConnection, SshRemoteHost, SshSession,
+    SshSessionError,
+};
 
 pub struct SshRemoteServer {
     remote_connections: Vec<Arc<SshRemoteConnection>>,
@@ -30,9 +33,7 @@ impl SshRemoteServer {
         host: &SshRemoteHost,
         timeout: std::time::Duration,
     ) -> Result<SshAsyncChannel, SshSessionError> {
-        let ssh_session = crate::SSH_SESSION_POOL
-            .get_or_create_ssh_session(&self.ssh_credentials)
-            .await;
+        let ssh_session = SshSession::new(self.ssh_credentials.clone());
 
         ssh_session.connect_to_remote_host(host, timeout).await
     }

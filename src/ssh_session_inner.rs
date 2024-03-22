@@ -35,7 +35,6 @@ impl SshSessionInner {
         }
 
         host.connected.set_value(false);
-        crate::SSH_SESSION_POOL.remove_from_pool(host).await;
     }
 }
 
