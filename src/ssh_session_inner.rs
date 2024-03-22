@@ -1,43 +1,39 @@
 use std::sync::Arc;
 
 use async_ssh2_lite::{AsyncSession, AsyncSessionStream};
-use tokio::sync::Mutex;
 
 use crate::{SshAsyncSession, SshCredentials, SshSession, SshSessionError, SshSessionWrapper};
 
 pub struct SshSessionInner {
-    pub ssh_session: Mutex<Option<Arc<SshSessionWrapper>>>,
+    pub ssh_session: Option<Arc<SshSessionWrapper>>,
     pub home_variable: Option<String>,
 }
 
 impl SshSessionInner {
     pub fn new() -> Self {
         Self {
-            ssh_session: Mutex::new(None),
+            ssh_session: None,
             home_variable: None,
         }
     }
 
     pub async fn get(
-        &self,
+        &mut self,
         credentials: &Arc<SshCredentials>,
     ) -> Result<Arc<SshSessionWrapper>, SshSessionError> {
-        let mut write_access = self.ssh_session.lock().await;
-        if write_access.is_none() {
+        if self.ssh_session.is_none() {
             let session = init_ssh_session(credentials).await?;
-            *write_access = Some(Arc::new(SshSessionWrapper::new(session)));
+            self.ssh_session = Some(SshSessionWrapper::new(session).into());
         }
 
-        Ok(write_access.as_ref().unwrap().clone())
+        Ok(self.ssh_session.as_ref().unwrap().clone())
     }
 
-    pub async fn disconnect(&self, description: &str, host: &SshSession) {
-        {
-            let mut write_access = self.ssh_session.lock().await;
-            if let Some(session) = write_access.take() {
-                session.disconnect(description).await;
-            }
+    pub async fn disconnect(&mut self, description: &str, host: &SshSession) {
+        if let Some(session) = self.ssh_session.take() {
+            session.disconnect(description).await;
         }
+
         host.connected.set_value(false);
         crate::SSH_SESSION_POOL.remove_from_pool(host).await;
     }

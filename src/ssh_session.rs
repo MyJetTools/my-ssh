@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use futures::Future;
 use rust_extensions::{date_time::DateTimeAsMicroseconds, UnsafeValue};
+use tokio::sync::Mutex;
 
 use crate::{SshAsyncChannel, SshCredentials, SshSessionInner};
 
@@ -28,7 +29,7 @@ impl SshRemoteHost {
 }
 
 pub struct SshSession {
-    inner: SshSessionInner,
+    inner: Mutex<SshSessionInner>,
     credentials: Arc<SshCredentials>,
     pub id: i64,
     pub connected: UnsafeValue<bool>,
@@ -38,7 +39,7 @@ impl SshSession {
     pub fn new(credentials: Arc<SshCredentials>) -> Self {
         let id = DateTimeAsMicroseconds::now().unix_microseconds;
         Self {
-            inner: SshSessionInner::new(),
+            inner: Mutex::new(SshSessionInner::new()),
             credentials,
             id,
             connected: UnsafeValue::new(true),
@@ -54,9 +55,11 @@ impl SshSession {
         remote_host: &SshRemoteHost,
         connection_timeout: Duration,
     ) -> Result<SshAsyncChannel, SshSessionError> {
-        let ssh_session = self.inner.get(&self.credentials).await?;
+        let mut write_access = self.inner.lock().await;
+        let ssh_session = write_access.get(&self.credentials).await?;
         let future = ssh_session.channel_direct_tcp_ip(remote_host);
-        self.execute_with_timeout(future, connection_timeout).await
+        self.execute_with_timeout(&mut write_access, future, connection_timeout)
+            .await
     }
 
     pub async fn download_remote_file(
@@ -64,9 +67,11 @@ impl SshSession {
         path: &str,
         execute_timeout: Duration,
     ) -> Result<Vec<u8>, SshSessionError> {
-        let ssh_session = self.inner.get(&self.credentials).await?;
+        let mut write_access = self.inner.lock().await;
+        let ssh_session = write_access.get(&self.credentials).await?;
         let future = ssh_session.download_remote_file(path);
-        self.execute_with_timeout(future, execute_timeout).await
+        self.execute_with_timeout(&mut write_access, future, execute_timeout)
+            .await
     }
 
     pub async fn execute_command(
@@ -74,13 +79,16 @@ impl SshSession {
         command: &str,
         execute_timeout: Duration,
     ) -> Result<String, SshSessionError> {
-        let ssh_session = self.inner.get(&self.credentials).await?;
+        let mut write_access = self.inner.lock().await;
+        let ssh_session = write_access.get(&self.credentials).await?;
         let future = ssh_session.execute_command(command);
-        self.execute_with_timeout(future, execute_timeout).await
+        self.execute_with_timeout(&mut write_access, future, execute_timeout)
+            .await
     }
 
     pub async fn disconnect(&self, reason: &str) {
-        self.inner.disconnect(reason, self).await;
+        let mut write_access = self.inner.lock().await;
+        write_access.disconnect(reason, self).await;
     }
 
     pub fn is_connected(&self) -> bool {
@@ -89,13 +97,14 @@ impl SshSession {
 
     async fn execute_with_timeout<TResult>(
         &self,
+        inner: &mut SshSessionInner,
         future: impl Future<Output = Result<TResult, SshSessionError>>,
         connection_timeout: Duration,
     ) -> Result<TResult, SshSessionError> {
         let result = tokio::time::timeout(connection_timeout, future).await;
 
         if result.is_err() {
-            self.inner
+            inner
                 .disconnect("Timeout connecting to remote host", self)
                 .await;
             return Err(SshSessionError::Timeout);
@@ -104,7 +113,7 @@ impl SshSession {
         match result.unwrap() {
             Ok(result) => return Ok(result),
             Err(e) => {
-                self.inner
+                inner
                     .disconnect("Could not connect to remote host", self)
                     .await;
                 return Err(e);
