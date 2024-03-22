@@ -3,7 +3,7 @@ use std::path::Path;
 use futures::AsyncReadExt;
 use rust_extensions::StrOrString;
 
-use crate::{SshAsyncChannel, SshAsyncSession, SshRemoteHost, SshSessionError};
+use crate::{SshAsyncChannel, SshAsyncSession, SshSessionError};
 
 pub struct SshSessionWrapper {
     ssh_session: SshAsyncSession,
@@ -30,11 +30,12 @@ impl SshSessionWrapper {
 
     pub async fn channel_direct_tcp_ip(
         &self,
-        remote_host: &SshRemoteHost,
+        host: &str,
+        port: u16,
     ) -> Result<SshAsyncChannel, SshSessionError> {
         let result = self
             .ssh_session
-            .channel_direct_tcpip(&remote_host.host, remote_host.port, None)
+            .channel_direct_tcpip(host, port, None)
             .await?;
 
         Ok(result)

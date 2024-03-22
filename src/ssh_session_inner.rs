@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use async_ssh2_lite::{AsyncSession, AsyncSessionStream};
 
@@ -41,8 +41,9 @@ impl SshSessionInner {
 pub async fn init_ssh_session(
     ssh_credentials: &Arc<SshCredentials>,
 ) -> Result<SshAsyncSession, SshSessionError> {
+    let (host, port) = ssh_credentials.get_host_port();
     let mut session = AsyncSession::<async_ssh2_lite::TokioTcpStream>::connect(
-        ssh_credentials.get_host_port().to_socket_addr(),
+        SocketAddr::new(host.parse().unwrap(), port),
         None,
     )
     .await?;

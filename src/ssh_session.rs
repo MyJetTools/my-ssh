@@ -8,26 +8,6 @@ use crate::{SshAsyncChannel, SshCredentials, SshSessionInner};
 
 use super::SshSessionError;
 
-#[derive(Debug, Clone)]
-pub struct SshRemoteHost {
-    pub host: String,
-    pub port: u16,
-}
-
-impl SshRemoteHost {
-    pub fn to_socket_addr(&self) -> std::net::SocketAddr {
-        std::net::SocketAddr::new(self.host.as_str().parse().unwrap(), self.port)
-    }
-
-    pub fn to_string(&self) -> String {
-        format!("{}:{}", self.host, self.port)
-    }
-
-    pub fn are_same(&self, other: &SshRemoteHost) -> bool {
-        self.host == other.host && self.port == other.port
-    }
-}
-
 pub struct SshSession {
     inner: Mutex<SshSessionInner>,
     credentials: Arc<SshCredentials>,
@@ -52,12 +32,13 @@ impl SshSession {
 
     pub async fn connect_to_remote_host(
         &self,
-        remote_host: &SshRemoteHost,
+        host: &str,
+        port: u16,
         connection_timeout: Duration,
     ) -> Result<SshAsyncChannel, SshSessionError> {
         let mut write_access = self.inner.lock().await;
         let ssh_session = write_access.get(&self.credentials).await?;
-        let future = ssh_session.channel_direct_tcp_ip(remote_host);
+        let future = ssh_session.channel_direct_tcp_ip(host, port);
         self.execute_with_timeout(&mut write_access, future, connection_timeout)
             .await
     }

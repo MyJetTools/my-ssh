@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use crate::{
-    SshAsyncChannel, SshCredentials, SshRemoteConnection, SshRemoteHost, SshSession,
-    SshSessionError,
-};
+use crate::{SshAsyncChannel, SshCredentials, SshRemoteConnection, SshSession, SshSessionError};
 
 pub struct SshRemoteServer {
     remote_connections: Vec<Arc<SshRemoteConnection>>,
@@ -21,21 +18,26 @@ impl SshRemoteServer {
     pub fn add_remote_connection(
         mut self,
         listen_host_port: impl Into<String>,
-        remote_host: &SshRemoteHost,
+        remote_host: impl Into<String>,
+        remote_port: u16,
     ) -> Self {
-        let new_item = SshRemoteConnection::new(listen_host_port.into(), remote_host.clone());
+        let new_item =
+            SshRemoteConnection::new(listen_host_port.into(), remote_host.into(), remote_port);
         self.remote_connections.push(Arc::new(new_item));
         self
     }
 
     pub async fn connect_to_remote_host(
         &self,
-        host: &SshRemoteHost,
+        host: &str,
+        port: u16,
         timeout: std::time::Duration,
     ) -> Result<SshAsyncChannel, SshSessionError> {
         let ssh_session = SshSession::new(self.ssh_credentials.clone());
 
-        ssh_session.connect_to_remote_host(host, timeout).await
+        ssh_session
+            .connect_to_remote_host(host, port, timeout)
+            .await
     }
 
     pub fn start(self) -> Self {
