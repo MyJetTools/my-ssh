@@ -17,6 +17,10 @@ pub use ssh_sessions_pool::*;
 
 mod ssh_credentials;
 pub use ssh_credentials::*;
+mod ssh_session_inner;
+pub use ssh_session_inner::*;
+mod ssh_session_wrapper;
+pub use ssh_session_wrapper::*;
 
 pub type SshAsyncSession = async_ssh2_lite::AsyncSession<async_ssh2_lite::TokioTcpStream>;
 

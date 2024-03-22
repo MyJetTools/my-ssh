@@ -1,0 +1,52 @@
+use std::path::Path;
+
+use futures::AsyncReadExt;
+
+use crate::{SshAsyncChannel, SshAsyncSession, SshRemoteHost, SshSessionError};
+
+pub struct SshSessionWrapper {
+    ssh_session: SshAsyncSession,
+}
+impl SshSessionWrapper {
+    pub fn new(ssh_session: SshAsyncSession) -> Self {
+        Self { ssh_session }
+    }
+    pub async fn download_remote_file(&self, path: &str) -> Result<Vec<u8>, SshSessionError> {
+        let (mut remote_file, _) = self.ssh_session.scp_recv(Path::new(path)).await?;
+
+        let mut contents = Vec::new();
+        remote_file.read_to_end(&mut contents).await?;
+        remote_file.send_eof().await?;
+        remote_file.wait_eof().await?;
+        remote_file.close().await?;
+        remote_file.wait_close().await?;
+
+        Ok(contents)
+    }
+
+    pub async fn channel_direct_tcp_ip(
+        &self,
+        remote_host: &SshRemoteHost,
+    ) -> Result<SshAsyncChannel, SshSessionError> {
+        let result = self
+            .ssh_session
+            .channel_direct_tcpip(&remote_host.host, remote_host.port, None)
+            .await?;
+
+        Ok(result)
+    }
+
+    pub async fn execute_command(&self, command: &str) -> Result<String, SshSessionError> {
+        let mut channel = self.ssh_session.channel_session().await?;
+        channel.exec(command).await?;
+
+        let mut result = String::new();
+        channel.read_to_string(&mut result).await?;
+
+        Ok(result)
+    }
+
+    pub async fn disconnect(&self, description: &str) {
+        let _ = self.ssh_session.disconnect(None, description, None).await;
+    }
+}
