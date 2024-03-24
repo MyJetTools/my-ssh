@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use async_ssh2_lite::{AsyncSession, AsyncSessionStream};
+use async_ssh2_lite::AsyncSession;
 
 use crate::{SshAsyncSession, SshCredentials, SshSession, SshSessionError, SshSessionWrapper};
 
@@ -41,57 +41,72 @@ impl SshSessionInner {
 pub async fn init_ssh_session(
     ssh_credentials: &Arc<SshCredentials>,
 ) -> Result<SshAsyncSession, SshSessionError> {
-    let (host, port) = ssh_credentials.get_host_port();
-    let mut session = AsyncSession::<async_ssh2_lite::TokioTcpStream>::connect(
-        SocketAddr::new(host.parse().unwrap(), port),
-        None,
-    )
-    .await?;
+    let session = match ssh_credentials.as_ref() {
+        SshCredentials::SshAgent {
+            ssh_remote_host,
+            ssh_remote_port,
+            ssh_user_name,
+        } => {
+            let mut session = AsyncSession::<async_ssh2_lite::TokioTcpStream>::connect(
+                SocketAddr::new(ssh_remote_host.parse().unwrap(), *ssh_remote_port),
+                None,
+            )
+            .await?;
 
-    run_session_user_auth_agent_with_try_next(&mut session, ssh_credentials.get_user_name())
-        .await?;
+            session.handshake().await?;
+
+            session.userauth_agent_with_try_next(ssh_user_name).await?;
+            assert!(session.authenticated());
+
+            session
+        }
+        SshCredentials::UserNameAndPassword {
+            ssh_remote_host,
+            ssh_remote_port,
+            ssh_user_name,
+            password,
+        } => {
+            let mut session = AsyncSession::<async_ssh2_lite::TokioTcpStream>::connect(
+                SocketAddr::new(ssh_remote_host.parse().unwrap(), *ssh_remote_port),
+                None,
+            )
+            .await?;
+
+            session.handshake().await?;
+            session.userauth_password(ssh_user_name, password).await?;
+
+            assert!(session.authenticated());
+            session
+        }
+        SshCredentials::PrivateKey {
+            ssh_remote_host,
+            ssh_remote_port,
+            ssh_user_name,
+            private_key,
+            passphrase,
+        } => {
+            let mut session = AsyncSession::<async_ssh2_lite::TokioTcpStream>::connect(
+                SocketAddr::new(ssh_remote_host.parse().unwrap(), *ssh_remote_port),
+                None,
+            )
+            .await?;
+
+            session.handshake().await?;
+
+            let pass_phrase = if let Some(passphrase) = passphrase {
+                Some(passphrase.as_str())
+            } else {
+                None
+            };
+
+            session
+                .userauth_pubkey_memory(&ssh_user_name, None, private_key, pass_phrase)
+                .await?;
+
+            assert!(session.authenticated());
+            session
+        }
+    };
 
     Ok(session)
 }
-
-async fn run_session_user_auth_agent_with_try_next<
-    S: AsyncSessionStream + Send + Sync + 'static,
->(
-    session: &mut AsyncSession<S>,
-    user_name: &str,
-) -> Result<(), SshSessionError> {
-    session.handshake().await?;
-
-    match session.userauth_agent_with_try_next(user_name).await {
-        Ok(_) => {
-            assert!(session.authenticated());
-        }
-        Err(err) => {
-            eprintln!("session.userauth_agent_with_try_next failed, err:{err}");
-            assert!(!session.authenticated());
-        }
-    }
-
-    Ok(())
-}
-
-/*
-async fn run_session_user_auth_agent<S: AsyncSessionStream + Send + Sync + 'static>(
-    session: &mut AsyncSession<S>,
-    user_name: &str,
-) -> Result<(), SshSessionError> {
-    session.handshake().await?;
-
-    match session.userauth_agent(user_name).await {
-        Ok(_) => {
-            assert!(session.authenticated());
-        }
-        Err(err) => {
-            eprintln!("session.userauth_agent failed, err:{err}");
-            assert!(!session.authenticated());
-        }
-    }
-
-    Ok(())
-}
- */
