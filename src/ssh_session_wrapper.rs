@@ -1,16 +1,22 @@
 use std::path::Path;
 
+use async_ssh2_lite::{AsyncChannel, TokioTcpStream};
 use futures::AsyncReadExt;
 use rust_extensions::StrOrString;
+use tokio::sync::Mutex;
 
 use crate::{SshAsyncChannel, SshAsyncSession, SshSessionError};
 
 pub struct SshSessionWrapper {
     ssh_session: SshAsyncSession,
+    channel: Mutex<Option<AsyncChannel<TokioTcpStream>>>,
 }
 impl SshSessionWrapper {
     pub fn new(ssh_session: SshAsyncSession) -> Self {
-        Self { ssh_session }
+        Self {
+            ssh_session,
+            channel: Mutex::new(None),
+        }
     }
     pub async fn download_remote_file<'s>(
         &self,
@@ -42,7 +48,14 @@ impl SshSessionWrapper {
     }
 
     pub async fn execute_command(&self, command: &str) -> Result<String, SshSessionError> {
-        let mut channel = self.ssh_session.channel_session().await?;
+        let mut channel_access = self.channel.lock().await;
+
+        if channel_access.is_some() {
+            let channel = self.ssh_session.channel_session().await?;
+            channel_access.replace(channel);
+        }
+
+        let channel = channel_access.as_mut().unwrap();
         channel.exec(command).await?;
 
         let mut result = String::new();
