@@ -50,7 +50,7 @@ impl SshSessionWrapper {
     pub async fn execute_command(&self, command: &str) -> Result<String, SshSessionError> {
         let mut channel_access = self.channel.lock().await;
 
-        if channel_access.is_some() {
+        if channel_access.is_none() {
             let channel = self.ssh_session.channel_session().await?;
             channel_access.replace(channel);
         }
