@@ -57,13 +57,18 @@ impl SshSessionWrapper {
 
     pub async fn upload_file(
         &self,
-        remote_path: &str,
+        remote_path: String,
         content: &[u8],
         mode: i32,
     ) -> Result<i32, SshSessionError> {
         let mut remote_file = self
             .ssh_session
-            .scp_send(Path::new(remote_path), mode, content.len() as u64, None)
+            .scp_send(
+                Path::new(remote_path.as_str()),
+                mode,
+                content.len() as u64,
+                None,
+            )
             .await?;
 
         remote_file.write_all(content).await?;

@@ -4,7 +4,7 @@ use futures::Future;
 use rust_extensions::{date_time::DateTimeAsMicroseconds, UnsafeValue};
 use tokio::sync::Mutex;
 
-use crate::{SshAsyncChannel, SshCredentials, SshSessionInner};
+use crate::{SshAsyncChannel, SshCredentials, SshSessionInner, SshSessionWrapper};
 
 use super::SshSessionError;
 
@@ -43,6 +43,24 @@ impl SshSession {
             .await
     }
 
+    async fn get_home_variable(
+        &self,
+        ssh_session: &SshSessionWrapper,
+        inner: &mut SshSessionInner,
+        execute_timeout: Duration,
+    ) -> Result<String, SshSessionError> {
+        if inner.home_variable.is_none() {
+            let home_variable = ssh_session.execute_command("echo $HOME");
+
+            let (home_variable, _) = self
+                .execute_with_timeout(inner, home_variable, execute_timeout)
+                .await?;
+            inner.home_variable = Some(home_variable.trim().to_string());
+        }
+
+        Ok(inner.home_variable.as_ref().unwrap().to_string())
+    }
+
     pub async fn download_remote_file(
         &self,
         path: &str,
@@ -52,16 +70,11 @@ impl SshSession {
         let ssh_session = write_access.get(&self.credentials).await?;
 
         let future = if path.starts_with("~") {
-            if write_access.home_variable.is_none() {
-                let home_variable = ssh_session.execute_command("echo $HOME");
+            let home_variable = self
+                .get_home_variable(&ssh_session, &mut write_access, execute_timeout)
+                .await?;
 
-                let (home_variable, _) = self
-                    .execute_with_timeout(&mut write_access, home_variable, execute_timeout)
-                    .await?;
-                write_access.home_variable = Some(home_variable.trim().to_string());
-            }
-
-            let path = path.replace("~", write_access.home_variable.as_ref().unwrap());
+            let path = path.replace("~", home_variable.as_str());
 
             ssh_session.download_remote_file(path.into())
         } else {
@@ -77,10 +90,23 @@ impl SshSession {
         remote_path: &str,
         content: &[u8],
         mode: i32,
+        execute_timeout: Duration,
     ) -> Result<i32, SshSessionError> {
         let mut write_access = self.inner.lock().await;
         let ssh_session = write_access.get(&self.credentials).await?;
-        let future = ssh_session.upload_file(remote_path, content, mode);
+
+        let future = if remote_path.starts_with("~") {
+            let home_variable = self
+                .get_home_variable(&ssh_session, &mut write_access, execute_timeout)
+                .await?;
+
+            let remote_path = remote_path.replace("~", home_variable.as_str());
+
+            ssh_session.upload_file(remote_path, content, mode)
+        } else {
+            ssh_session.upload_file(remote_path.to_string(), content, mode)
+        };
+
         self.execute_with_timeout(&mut write_access, future, Duration::from_secs(10))
             .await
     }
