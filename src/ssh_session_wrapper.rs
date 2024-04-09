@@ -2,6 +2,7 @@ use std::path::Path;
 
 use futures::AsyncReadExt;
 use rust_extensions::StrOrString;
+use tokio::io::AsyncWriteExt;
 
 use crate::{SshAsyncChannel, SshAsyncSession, SshSessionError};
 
@@ -52,6 +53,27 @@ impl SshSessionWrapper {
         channel.wait_close().await?;
 
         Ok((result, channel.exit_status()?))
+    }
+
+    pub async fn upload_file(
+        &self,
+        remote_path: &str,
+        content: &[u8],
+        mode: i32,
+    ) -> Result<i32, SshSessionError> {
+        let mut remote_file = self
+            .ssh_session
+            .scp_send(Path::new(remote_path), mode, content.len() as u64, None)
+            .await?;
+
+        remote_file.write_all(content).await?;
+        // Close the channel and wait for the whole content to be transferred
+        remote_file.send_eof().await?;
+        remote_file.wait_eof().await?;
+        remote_file.close().await?;
+        remote_file.wait_close().await?;
+
+        Ok(remote_file.exit_status()?)
     }
 
     pub async fn disconnect(&self, description: &str) {

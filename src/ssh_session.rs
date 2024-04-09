@@ -72,6 +72,19 @@ impl SshSession {
             .await
     }
 
+    pub async fn upload_file(
+        &self,
+        remote_path: &str,
+        content: &[u8],
+        mode: i32,
+    ) -> Result<i32, SshSessionError> {
+        let mut write_access = self.inner.lock().await;
+        let ssh_session = write_access.get(&self.credentials).await?;
+        let future = ssh_session.upload_file(remote_path, content, mode);
+        self.execute_with_timeout(&mut write_access, future, Duration::from_secs(10))
+            .await
+    }
+
     pub async fn execute_command(
         &self,
         command: &str,
