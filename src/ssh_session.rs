@@ -55,7 +55,7 @@ impl SshSession {
             if write_access.home_variable.is_none() {
                 let home_variable = ssh_session.execute_command("echo $HOME");
 
-                let home_variable = self
+                let (home_variable, _) = self
                     .execute_with_timeout(&mut write_access, home_variable, execute_timeout)
                     .await?;
                 write_access.home_variable = Some(home_variable.trim().to_string());
@@ -76,7 +76,7 @@ impl SshSession {
         &self,
         command: &str,
         execute_timeout: Duration,
-    ) -> Result<String, SshSessionError> {
+    ) -> Result<(String, i32), SshSessionError> {
         let mut write_access = self.inner.lock().await;
         let ssh_session = write_access.get(&self.credentials).await?;
         let future = ssh_session.execute_command(command);
