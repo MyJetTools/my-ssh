@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use crate::{SshAsyncChannel, SshCredentials, SshRemoteConnection, SshSession, SshSessionError};
 
-pub struct SshRemoteServer {
+pub struct SshPortForwardServer {
     remote_connections: Vec<Arc<SshRemoteConnection>>,
     ssh_credentials: Arc<SshCredentials>,
 }
 
-impl SshRemoteServer {
+impl SshPortForwardServer {
     pub fn new(ssh_credentials: SshCredentials) -> Self {
         Self {
             ssh_credentials: Arc::new(ssh_credentials),

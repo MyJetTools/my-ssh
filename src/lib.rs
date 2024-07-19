@@ -7,9 +7,9 @@ pub use error::*;
 mod ssh_session;
 pub use ssh_session::*;
 
-mod ssh_remote_server;
+mod ssh_port_forward_server;
 
-pub use ssh_remote_server::*;
+pub use ssh_port_forward_server::*;
 
 mod ssh_credentials;
 pub use ssh_credentials::*;
