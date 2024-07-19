@@ -2,37 +2,44 @@ use std::{sync::Arc, time::Duration};
 
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 
-use crate::{ssh_credentials, SshAsyncChannel, SshSession};
+use crate::{ssh_credentials, RemotePortForwardError, SshAsyncChannel, SshSession};
 
 use super::SshRemoteConnection;
 
-pub fn start(
+pub async fn start(
     remote_connection: Arc<SshRemoteConnection>,
     ssh_credentials: Arc<ssh_credentials::SshCredentials>,
-) {
-    tokio::spawn(server_loop(remote_connection, ssh_credentials));
-}
-
-async fn server_loop(
-    remote_connection: Arc<SshRemoteConnection>,
-    ssh_credentials: Arc<ssh_credentials::SshCredentials>,
-) {
+) -> Result<(), RemotePortForwardError> {
     let listener = TcpListener::bind(remote_connection.listen_host_port.as_str()).await;
 
     if let Err(err) = &listener {
-        println!(
+        return Err(RemotePortForwardError::CanNotBindListenEndpoint(format!(
             "Error binding to address: {}. Err: {:?}",
             remote_connection.listen_host_port.as_str(),
             err
-        );
-        return;
+        )));
     }
 
     let listener = listener.unwrap();
+    tokio::spawn(server_loop(listener, remote_connection, ssh_credentials));
 
-    loop {
+    Ok(())
+}
+
+async fn server_loop(
+    listener: TcpListener,
+    remote_connection: Arc<SshRemoteConnection>,
+    ssh_credentials: Arc<ssh_credentials::SshCredentials>,
+) {
+    while remote_connection.is_working() {
         let (mut socket, addr) = listener.accept().await.unwrap();
-        println!("Accepted connection from: {:?}", addr);
+        println!(
+            "Accepted connection from: {:?} to serve SSH port-forward: {}:{}:{}",
+            addr,
+            remote_connection.listen_host_port,
+            remote_connection.remote_host,
+            remote_connection.remote_port
+        );
 
         let ssh_session = SshSession::new(ssh_credentials.clone());
 
@@ -59,12 +66,23 @@ async fn server_loop(
 
         let (reader, writer) = socket.into_split();
 
-        tokio::spawn(from_tcp_to_ssh_stream(reader, ssh_writer));
-        tokio::spawn(from_ssh_to_tcp_stream(writer, ssh_reader));
+        tokio::spawn(from_tcp_to_ssh_stream(
+            remote_connection.clone(),
+            reader,
+            ssh_writer,
+        ));
+        tokio::spawn(from_ssh_to_tcp_stream(
+            remote_connection.clone(),
+            writer,
+            ssh_reader,
+        ));
     }
+
+    remote_connection.mark_as_stopped();
 }
 
 async fn from_tcp_to_ssh_stream(
+    remote_connection: Arc<SshRemoteConnection>,
     mut tcp_stream: impl tokio::io::AsyncReadExt + Unpin,
     mut ssh_channel: futures::io::WriteHalf<SshAsyncChannel>,
 ) {
@@ -74,8 +92,18 @@ async fn from_tcp_to_ssh_stream(
         buf.set_len(buf.capacity());
     }
 
-    loop {
-        let result = tcp_stream.read(&mut buf).await;
+    let read_timeout = Duration::from_secs(60);
+
+    while remote_connection.is_working() {
+        let result = tokio::time::timeout(read_timeout, tcp_stream.read(&mut buf)).await;
+
+        if result.is_err() {
+            let _ = ssh_channel.close().await;
+            return;
+        }
+
+        let result = result.unwrap();
+
         if result.is_err() {
             let _ = ssh_channel.close().await;
             return;
@@ -96,6 +124,7 @@ async fn from_tcp_to_ssh_stream(
 }
 
 async fn from_ssh_to_tcp_stream(
+    remote_connection: Arc<SshRemoteConnection>,
     mut tcp_writer: impl tokio::io::AsyncWriteExt + Unpin,
     mut ssh_channel: futures::io::ReadHalf<SshAsyncChannel>,
 ) {
@@ -106,8 +135,17 @@ async fn from_ssh_to_tcp_stream(
         buf.set_len(buf.capacity());
     }
 
-    loop {
-        let result = ssh_channel.read(&mut buf).await;
+    let read_timeout = Duration::from_secs(60);
+
+    while remote_connection.is_working() {
+        let result = tokio::time::timeout(read_timeout, ssh_channel.read(&mut buf)).await;
+
+        if result.is_err() {
+            let _ = tcp_writer.shutdown().await;
+            return;
+        }
+
+        let result = result.unwrap();
 
         if result.is_err() {
             let _ = tcp_writer.shutdown().await;
