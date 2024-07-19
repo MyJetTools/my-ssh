@@ -68,6 +68,8 @@ async fn server_loop(
         );
 
         if !remote_connection.is_working() {
+            println!("Socket is being stopped. Closing connection.");
+            let _ = socket.shutdown().await;
             break;
         }
 
