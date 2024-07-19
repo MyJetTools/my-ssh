@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub struct SshPortForwardConnection {
+pub struct SshPortForwardTunnel {
     pub listen_host_port: String,
     pub remote_host: String,
     pub remote_port: u16,
@@ -8,7 +8,7 @@ pub struct SshPortForwardConnection {
     pub stopped: AtomicBool,
 }
 
-impl SshPortForwardConnection {
+impl SshPortForwardTunnel {
     pub fn new(listen_host_port: String, remote_host: String, remote_port: u16) -> Self {
         Self {
             listen_host_port,
@@ -40,7 +40,7 @@ impl SshPortForwardConnection {
     }
 }
 
-impl Drop for SshPortForwardConnection {
+impl Drop for SshPortForwardTunnel {
     fn drop(&mut self) {
         self.working.store(false, Ordering::Relaxed);
     }

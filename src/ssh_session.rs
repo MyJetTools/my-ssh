@@ -5,8 +5,8 @@ use rust_extensions::{date_time::DateTimeAsMicroseconds, StrOrString, UnsafeValu
 use tokio::sync::Mutex;
 
 use crate::{
-    RemotePortForwardError, SshAsyncChannel, SshCredentials, SshPortForwardConnection,
-    SshSessionInner, SshSessionWrapper,
+    RemotePortForwardError, SshAsyncChannel, SshCredentials, SshPortForwardTunnel, SshSessionInner,
+    SshSessionWrapper,
 };
 
 use super::SshSessionError;
@@ -166,8 +166,8 @@ impl SshSession {
         listen_host_port: impl Into<StrOrString<'static>>,
         remote_host: impl Into<StrOrString<'static>>,
         remote_port: u16,
-    ) -> Result<Arc<SshPortForwardConnection>, RemotePortForwardError> {
-        let new_item = SshPortForwardConnection::new(
+    ) -> Result<Arc<SshPortForwardTunnel>, RemotePortForwardError> {
+        let new_item = SshPortForwardTunnel::new(
             listen_host_port.into().to_string(),
             remote_host.into().to_string(),
             remote_port,

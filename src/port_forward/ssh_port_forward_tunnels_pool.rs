@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use rust_extensions::StrOrString;
 use tokio::sync::Mutex;
 
-use crate::{SshCredentials, SshPortForwardConnection};
+use crate::{SshCredentials, SshPortForwardTunnel};
 
 #[derive(Debug)]
 pub enum RemotePortForwardError {
@@ -11,12 +11,12 @@ pub enum RemotePortForwardError {
     CanNotBindListenEndpoint(String),
 }
 
-pub struct SshPortForwardServer {
-    remote_connections: Mutex<BTreeMap<u16, Arc<SshPortForwardConnection>>>,
+pub struct SshPortForwardTunnelsPool {
+    remote_connections: Mutex<BTreeMap<u16, Arc<SshPortForwardTunnel>>>,
     ssh_credentials: Arc<SshCredentials>,
 }
 
-impl SshPortForwardServer {
+impl SshPortForwardTunnelsPool {
     pub fn new(ssh_credentials: SshCredentials) -> Self {
         Self {
             ssh_credentials: Arc::new(ssh_credentials),
@@ -29,13 +29,13 @@ impl SshPortForwardServer {
         listen_host_port: impl Into<StrOrString<'static>>,
         remote_host: impl Into<String>,
         remote_port: u16,
-    ) -> Result<Option<Arc<SshPortForwardConnection>>, RemotePortForwardError> {
+    ) -> Result<Option<Arc<SshPortForwardTunnel>>, RemotePortForwardError> {
         let listen_host_port: StrOrString = listen_host_port.into();
         let listen_port = extract_port(listen_host_port.as_str())?;
 
         let mut connections_access = self.remote_connections.lock().await;
         let new_item =
-            SshPortForwardConnection::new(listen_host_port.into(), remote_host.into(), remote_port);
+            SshPortForwardTunnel::new(listen_host_port.into(), remote_host.into(), remote_port);
 
         let new_item = Arc::new(new_item);
 
@@ -48,8 +48,8 @@ impl SshPortForwardServer {
 
     pub async fn find_connection(
         &self,
-        check: impl Fn(&SshPortForwardConnection) -> bool,
-    ) -> Option<Arc<SshPortForwardConnection>> {
+        check: impl Fn(&SshPortForwardTunnel) -> bool,
+    ) -> Option<Arc<SshPortForwardTunnel>> {
         let read_access = self.remote_connections.lock().await;
         for connection in read_access.values() {
             if check(connection.as_ref()) {
@@ -60,7 +60,7 @@ impl SshPortForwardServer {
         None
     }
 
-    pub async fn remove_connection(&self, port: u16) -> Option<Arc<SshPortForwardConnection>> {
+    pub async fn remove_connection(&self, port: u16) -> Option<Arc<SshPortForwardTunnel>> {
         let mut write_access = self.remote_connections.lock().await;
         write_access.remove(&port)
     }

@@ -4,10 +4,10 @@ use tokio::{io::AsyncWriteExt, net::TcpListener};
 
 use crate::{ssh_credentials, RemotePortForwardError, SshAsyncChannel, SshSession};
 
-use super::SshPortForwardConnection;
+use super::SshPortForwardTunnel;
 
 pub async fn start(
-    remote_connection: Arc<SshPortForwardConnection>,
+    remote_connection: Arc<SshPortForwardTunnel>,
     ssh_credentials: Arc<ssh_credentials::SshCredentials>,
 ) -> Result<(), RemotePortForwardError> {
     let listener = TcpListener::bind(remote_connection.listen_host_port.as_str()).await;
@@ -28,7 +28,7 @@ pub async fn start(
 
 async fn server_loop(
     listener: TcpListener,
-    remote_connection: Arc<SshPortForwardConnection>,
+    remote_connection: Arc<SshPortForwardTunnel>,
     ssh_credentials: Arc<ssh_credentials::SshCredentials>,
 ) {
     while remote_connection.is_working() {
@@ -82,7 +82,7 @@ async fn server_loop(
 }
 
 async fn from_tcp_to_ssh_stream(
-    remote_connection: Arc<SshPortForwardConnection>,
+    remote_connection: Arc<SshPortForwardTunnel>,
     mut tcp_stream: impl tokio::io::AsyncReadExt + Unpin,
     mut ssh_channel: futures::io::WriteHalf<SshAsyncChannel>,
 ) {
@@ -124,7 +124,7 @@ async fn from_tcp_to_ssh_stream(
 }
 
 async fn from_ssh_to_tcp_stream(
-    remote_connection: Arc<SshPortForwardConnection>,
+    remote_connection: Arc<SshPortForwardTunnel>,
     mut tcp_writer: impl tokio::io::AsyncWriteExt + Unpin,
     mut ssh_channel: futures::io::ReadHalf<SshAsyncChannel>,
 ) {
