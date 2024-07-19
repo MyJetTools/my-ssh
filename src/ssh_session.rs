@@ -1,10 +1,13 @@
 use std::{sync::Arc, time::Duration};
 
 use futures::Future;
-use rust_extensions::{date_time::DateTimeAsMicroseconds, UnsafeValue};
+use rust_extensions::{date_time::DateTimeAsMicroseconds, StrOrString, UnsafeValue};
 use tokio::sync::Mutex;
 
-use crate::{SshAsyncChannel, SshCredentials, SshSessionInner, SshSessionWrapper};
+use crate::{
+    RemotePortForwardError, SshAsyncChannel, SshCredentials, SshPortForwardConnection,
+    SshSessionInner, SshSessionWrapper,
+};
 
 use super::SshSessionError;
 
@@ -156,5 +159,24 @@ impl SshSession {
                 return Err(e);
             }
         }
+    }
+
+    pub async fn start_port_forward(
+        &self,
+        listen_host_port: impl Into<StrOrString<'static>>,
+        remote_host: impl Into<StrOrString<'static>>,
+        remote_port: u16,
+    ) -> Result<Arc<SshPortForwardConnection>, RemotePortForwardError> {
+        let new_item = SshPortForwardConnection::new(
+            listen_host_port.into().to_string(),
+            remote_host.into().to_string(),
+            remote_port,
+        );
+
+        let new_item = Arc::new(new_item);
+
+        crate::port_forward::tcp_server::start(new_item.clone(), self.credentials.clone()).await?;
+
+        Ok(new_item)
     }
 }

@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use rust_extensions::StrOrString;
 use tokio::sync::Mutex;
 
-use crate::{SshCredentials, SshRemoteConnection};
+use crate::{SshCredentials, SshPortForwardConnection};
 
 #[derive(Debug)]
 pub enum RemotePortForwardError {
@@ -12,7 +12,7 @@ pub enum RemotePortForwardError {
 }
 
 pub struct SshPortForwardServer {
-    remote_connections: Mutex<BTreeMap<u16, Arc<SshRemoteConnection>>>,
+    remote_connections: Mutex<BTreeMap<u16, Arc<SshPortForwardConnection>>>,
     ssh_credentials: Arc<SshCredentials>,
 }
 
@@ -29,13 +29,13 @@ impl SshPortForwardServer {
         listen_host_port: impl Into<StrOrString<'static>>,
         remote_host: impl Into<String>,
         remote_port: u16,
-    ) -> Result<Option<Arc<SshRemoteConnection>>, RemotePortForwardError> {
+    ) -> Result<Option<Arc<SshPortForwardConnection>>, RemotePortForwardError> {
         let listen_host_port: StrOrString = listen_host_port.into();
         let listen_port = extract_port(listen_host_port.as_str())?;
 
         let mut connections_access = self.remote_connections.lock().await;
         let new_item =
-            SshRemoteConnection::new(listen_host_port.into(), remote_host.into(), remote_port);
+            SshPortForwardConnection::new(listen_host_port.into(), remote_host.into(), remote_port);
 
         let new_item = Arc::new(new_item);
 
@@ -48,8 +48,8 @@ impl SshPortForwardServer {
 
     pub async fn find_connection(
         &self,
-        check: impl Fn(&SshRemoteConnection) -> bool,
-    ) -> Option<Arc<SshRemoteConnection>> {
+        check: impl Fn(&SshPortForwardConnection) -> bool,
+    ) -> Option<Arc<SshPortForwardConnection>> {
         let read_access = self.remote_connections.lock().await;
         for connection in read_access.values() {
             if check(connection.as_ref()) {
@@ -60,7 +60,7 @@ impl SshPortForwardServer {
         None
     }
 
-    pub async fn remove_connection(&self, port: u16) -> Option<Arc<SshRemoteConnection>> {
+    pub async fn remove_connection(&self, port: u16) -> Option<Arc<SshPortForwardConnection>> {
         let mut write_access = self.remote_connections.lock().await;
         write_access.remove(&port)
     }
