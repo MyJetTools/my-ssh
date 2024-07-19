@@ -46,7 +46,13 @@ pub async fn start(
 
     let listener = listener.unwrap();
 
-    tokio::spawn(server_loop(listener, remote_connection, ssh_credentials));
+    let handler = tokio::spawn(server_loop(
+        listener,
+        remote_connection.clone(),
+        ssh_credentials,
+    ));
+
+    remote_connection.task.lock().await.replace(handler);
 
     Ok(())
 }
@@ -109,8 +115,6 @@ async fn server_loop(
             ssh_reader,
         ));
     }
-
-    remote_connection.mark_as_stopped();
 }
 
 async fn from_tcp_to_ssh_stream(

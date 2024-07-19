@@ -1,11 +1,13 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use tokio::sync::Mutex;
+
 pub struct SshPortForwardTunnel {
     pub listen_string: String,
     pub remote_host: String,
     pub remote_port: u16,
     pub working: AtomicBool,
-    pub stopped: AtomicBool,
+    pub task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl SshPortForwardTunnel {
@@ -16,7 +18,7 @@ impl SshPortForwardTunnel {
             remote_port,
             working: AtomicBool::new(true),
 
-            stopped: AtomicBool::new(false),
+            task: Mutex::new(None),
         }
     }
 
@@ -24,19 +26,14 @@ impl SshPortForwardTunnel {
         self.working.load(Ordering::Relaxed)
     }
 
-    pub fn mark_as_stopped(&self) {
-        self.stopped.store(true, Ordering::Relaxed);
-    }
-
     pub async fn stop(&self) {
-        self.working.store(false, Ordering::Relaxed);
-        loop {
-            if self.stopped.load(Ordering::Relaxed) {
-                break;
+        {
+            let read_access = self.task.lock().await;
+            if let Some(task) = &*read_access {
+                task.abort();
             }
-
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
+        self.working.store(false, Ordering::Relaxed);
     }
 }
 
