@@ -34,9 +34,10 @@ async fn server_loop(
     while remote_connection.is_working() {
         let (mut socket, addr) = listener.accept().await.unwrap();
         println!(
-            "Accepted connection from: {:?} to serve SSH port-forward: {}:{}:{}",
+            "Accepted connection from: {:?} to serve SSH port-forward: {}->{}->{}:{}",
             addr,
             remote_connection.listen_host_port,
+            ssh_credentials.to_string(),
             remote_connection.remote_host,
             remote_connection.remote_port
         );
