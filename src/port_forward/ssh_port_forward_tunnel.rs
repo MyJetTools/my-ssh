@@ -27,13 +27,13 @@ impl SshPortForwardTunnel {
     }
 
     pub async fn stop(&self) {
-        {
+        let was_working = self.working.swap(false, Ordering::Relaxed);
+        if was_working {
             let read_access = self.task.lock().await;
             if let Some(task) = &*read_access {
                 task.abort();
             }
         }
-        self.working.store(false, Ordering::Relaxed);
     }
 }
 
