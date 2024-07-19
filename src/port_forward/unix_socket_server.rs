@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use tokio::{
     io::AsyncWriteExt,
-    net::{TcpListener, UnixListener, UnixSocket},
+    net::{UnixListener, UnixSocket},
 };
 
 use crate::{ssh_credentials, RemotePortForwardError, SshAsyncChannel, SshSession};
@@ -27,7 +27,7 @@ pub async fn start(
     let result = unix_socket.bind(remote_connection.listen_string.as_str());
 
     if let Err(err) = &result {
-        return Err(RemotePortForwardError::CanNotBindListenEndpoint(format!(
+        return Err(RemotePortForwardError::ErrorBindingUnixSocket(format!(
             "Error binding to address: {}. Err: {:?}",
             remote_connection.listen_string.as_str(),
             err
@@ -37,7 +37,7 @@ pub async fn start(
     let listener = unix_socket.listen(65535);
 
     if let Err(err) = &result {
-        return Err(RemotePortForwardError::CanNotBindListenEndpoint(format!(
+        return Err(RemotePortForwardError::ErrorBindingUnixSocket(format!(
             "Error starting listen unix socket: {}. Err: {:?}",
             remote_connection.listen_string.as_str(),
             err
