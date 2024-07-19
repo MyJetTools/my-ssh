@@ -67,6 +67,10 @@ async fn server_loop(
             remote_connection.remote_port
         );
 
+        if !remote_connection.is_working() {
+            break;
+        }
+
         let ssh_session = SshSession::new(ssh_credentials.clone());
 
         let remote_channel = ssh_session
