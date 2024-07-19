@@ -1,6 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use tokio::{io::AsyncWriteExt, net::TcpListener};
+use tokio::{
+    io::AsyncWriteExt,
+    net::{TcpListener, UnixListener, UnixSocket},
+};
 
 use crate::{ssh_credentials, RemotePortForwardError, SshAsyncChannel, SshSession};
 
@@ -10,9 +13,20 @@ pub async fn start(
     remote_connection: Arc<SshPortForwardTunnel>,
     ssh_credentials: Arc<ssh_credentials::SshCredentials>,
 ) -> Result<(), RemotePortForwardError> {
-    let listener = TcpListener::bind(remote_connection.listen_string.as_str()).await;
+    let unix_socket = UnixSocket::new_stream();
 
-    if let Err(err) = &listener {
+    if unix_socket.is_err() {
+        return Err(RemotePortForwardError::ErrorBindingUnixSocket(format!(
+            "Error creating unix socket. Err: {:?}",
+            unix_socket.err()
+        )));
+    }
+
+    let unix_socket = unix_socket.unwrap();
+
+    let result = unix_socket.bind(remote_connection.listen_string.as_str());
+
+    if let Err(err) = &result {
         return Err(RemotePortForwardError::CanNotBindListenEndpoint(format!(
             "Error binding to address: {}. Err: {:?}",
             remote_connection.listen_string.as_str(),
@@ -20,19 +34,30 @@ pub async fn start(
         )));
     }
 
+    let listener = unix_socket.listen(65535);
+
+    if let Err(err) = &result {
+        return Err(RemotePortForwardError::CanNotBindListenEndpoint(format!(
+            "Error starting listen unix socket: {}. Err: {:?}",
+            remote_connection.listen_string.as_str(),
+            err
+        )));
+    }
+
     let listener = listener.unwrap();
+
     tokio::spawn(server_loop(listener, remote_connection, ssh_credentials));
 
     Ok(())
 }
 
 async fn server_loop(
-    listener: TcpListener,
+    unix_listener: UnixListener,
     remote_connection: Arc<SshPortForwardTunnel>,
     ssh_credentials: Arc<ssh_credentials::SshCredentials>,
 ) {
     while remote_connection.is_working() {
-        let (mut socket, addr) = listener.accept().await.unwrap();
+        let (mut socket, addr) = unix_listener.accept().await.unwrap();
         println!(
             "Accepted connection from: {:?} to serve SSH port-forward: {}->{}->{}:{}",
             addr,

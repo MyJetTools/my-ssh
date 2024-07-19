@@ -175,7 +175,7 @@ impl SshSession {
 
         let new_item = Arc::new(new_item);
 
-        crate::port_forward::tcp_server::start(new_item.clone(), self.credentials.clone()).await?;
+        crate::port_forward::start(new_item.clone(), self.credentials.clone()).await?;
 
         Ok(new_item)
     }
