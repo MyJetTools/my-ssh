@@ -43,7 +43,7 @@ impl SshSessionWrapper {
         Ok(result)
     }
 
-    pub async fn set_port_forward(
+    pub async fn start_port_forward(
         &self,
         remote_port: u16,
         host: &str,

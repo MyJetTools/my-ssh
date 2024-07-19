@@ -123,19 +123,6 @@ impl SshSession {
             .await
     }
 
-    pub async fn set_port_forward(
-        &self,
-        listen_host: &str,
-        remote_host: &str,
-        remote_port: u16,
-    ) -> Result<(), SshSessionError> {
-        let mut write_access = self.inner.lock().await;
-        let ssh_session = write_access.get(&self.credentials).await.unwrap();
-        ssh_session
-            .set_port_forward(remote_port, remote_host, listen_host)
-            .await
-    }
-
     pub async fn disconnect(&self, reason: &str) {
         let mut write_access = self.inner.lock().await;
         write_access.disconnect(reason, self).await;
