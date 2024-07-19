@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use async_ssh2_lite::util::ConnectInfo;
 use futures::AsyncReadExt;
 use rust_extensions::StrOrString;
 use tokio::io::AsyncWriteExt;
@@ -40,6 +41,34 @@ impl SshSessionWrapper {
             .await?;
 
         Ok(result)
+    }
+
+    pub async fn set_port_forward(
+        &self,
+        remote_port: u16,
+        host: &str,
+        local_host: &str,
+    ) -> Result<(), SshSessionError> {
+        match local_host.parse() {
+            Ok(socket_addr) => {
+                self.ssh_session
+                    .remote_port_forwarding(
+                        remote_port,
+                        Some(host),
+                        None,
+                        ConnectInfo::Tcp(socket_addr),
+                    )
+                    .await?;
+            }
+            Err(err) => {
+                return Err(SshSessionError::Other(format!(
+                    "Error parsing  ssh local address: {}",
+                    err
+                )))
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn execute_command(&self, command: &str) -> Result<(String, i32), SshSessionError> {

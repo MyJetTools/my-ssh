@@ -4,6 +4,7 @@ pub enum SshSessionError {
     StdIoStreamError(std::io::Error),
     SshError(async_ssh2_lite::Error),
     SshAuthenticationError,
+    Other(String),
     Timeout,
 }
 
