@@ -15,14 +15,11 @@ impl SshSessionsPool {
         }
     }
 
-    pub async fn get_or_create(
-        &self,
-        ssh_credentials: &Arc<SshCredentials>,
-    ) -> Result<Arc<SshSession>, SshSessionError> {
+    pub async fn get_or_create(&self, ssh_credentials: &Arc<SshCredentials>) -> Arc<SshSession> {
         let mut sessions = self.sessions.lock().await;
         for session in sessions.iter() {
             if session.get_ssh_credentials().are_same(ssh_credentials) {
-                return Ok(session.clone());
+                return session.clone();
             }
         }
 
@@ -30,7 +27,7 @@ impl SshSessionsPool {
 
         sessions.push(session.clone());
 
-        Ok(session)
+        session
     }
 
     pub async fn get(&self, ssh_credentials: &SshCredentials) -> Option<Arc<SshSession>> {
