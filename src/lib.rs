@@ -17,3 +17,5 @@ pub type SshAsyncChannel = async_ssh2_lite::AsyncChannel<async_ssh2_lite::TokioT
 pub extern crate ssh2;
 mod port_forward;
 pub use port_forward::*;
+mod ssh_sessions_pool;
+pub use ssh_sessions_pool::*;
