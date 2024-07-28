@@ -60,10 +60,10 @@ fn parse_ssh_string(src: &str) -> crate::SshCredentials {
         );
     }
 
-    let (user_name, mut host) = user_name_parsed.unwrap();
+    let (mut user_name, host) = user_name_parsed.unwrap();
 
-    if host.starts_with("//") {
-        host = &host[2..];
+    if user_name.starts_with("//") {
+        user_name = &user_name[2..];
     }
 
     crate::SshCredentials::SshAgent {
