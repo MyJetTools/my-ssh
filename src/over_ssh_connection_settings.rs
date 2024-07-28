@@ -43,7 +43,7 @@ impl OverSshConnectionSettings {
 
 // parsing line such as "ssh://username@host:port" or "ssh:username@host:port"
 fn parse_ssh_string(src: &str) -> crate::SshCredentials {
-    let split = src.split_exact_to_3_lines(":");
+    let split = src.split_2_or_3_lines(":");
 
     if split.is_none() {
         panic!("Invalid ssh connection string: {}. Connection string must be like ssh://root@10.0.0.1:22", src);
@@ -68,7 +68,11 @@ fn parse_ssh_string(src: &str) -> crate::SshCredentials {
 
     crate::SshCredentials::SshAgent {
         ssh_remote_host: host.to_string(),
-        ssh_remote_port: port.parse().unwrap(),
+        ssh_remote_port: if let Some(port) = port {
+            port.parse().unwrap()
+        } else {
+            22
+        },
         ssh_user_name: user_name.to_string(),
     }
 }
@@ -79,7 +83,23 @@ mod tests {
 
     #[test]
     fn test() {
-        let settings = "ssh://root@localhost:22->http://localhost:8080";
+        let settings = "ssh://root@localhost:222->http://localhost:8080";
+
+        let settings = OverSshConnectionSettings::parse(settings);
+
+        assert_eq!("http://localhost:8080", settings.remote_resource_string);
+
+        let settings = settings.ssh_credentials.unwrap();
+
+        assert_eq!("root", settings.get_user_name());
+        let (host, port) = settings.get_host_port();
+        assert_eq!("localhost", host);
+        assert_eq!(port, 222);
+    }
+
+    #[test]
+    fn test_without_port_at_ssh() {
+        let settings = "ssh://root@localhost->http://localhost:8080";
 
         let settings = OverSshConnectionSettings::parse(settings);
 
