@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
 use rust_extensions::str_utils::StrUtils;
 
 // To help parsing connection settings from string like "ssh://user:password@host:port->http://localhost:8080"
 pub struct OverSshConnectionSettings {
-    pub ssh_credentials: Option<Arc<crate::SshCredentials>>,
+    pub ssh_credentials: Option<crate::SshCredentials>,
     pub remote_resource_string: String,
 }
 
@@ -35,7 +33,7 @@ impl OverSshConnectionSettings {
         let right_part = right_part.unwrap();
 
         Self {
-            ssh_credentials: Some(Arc::new(parse_ssh_string(left_part))),
+            ssh_credentials: Some(parse_ssh_string(left_part)),
             remote_resource_string: right_part.to_string(),
         }
     }
