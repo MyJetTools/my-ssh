@@ -1,4 +1,4 @@
-use rust_extensions::str_utils::StrUtils;
+use rust_extensions::{str_utils::StrUtils, url_utils::HostEndpoint};
 
 // To help parsing connection settings from string like "ssh://user:password@host:port->http://localhost:8080"
 pub struct OverSshConnectionSettings {
@@ -36,6 +36,17 @@ impl OverSshConnectionSettings {
             ssh_credentials: Some(parse_ssh_string(left_part)),
             remote_resource_string: right_part.to_string(),
         }
+    }
+
+    pub fn get_remote_endpoint<'s>(&'s self) -> HostEndpoint<'s> {
+        if let Some(result) = HostEndpoint::new(&self.remote_resource_string) {
+            return result;
+        }
+
+        panic!(
+            "Invalid remote resource string: {}",
+            self.remote_resource_string
+        );
     }
 }
 
