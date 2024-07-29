@@ -24,6 +24,8 @@ pub async fn start(
 
     let unix_socket = unix_socket.unwrap();
 
+    let _ = tokio::fs::remove_file(remote_connection.listen_string.as_str()).await;
+
     let result = unix_socket.bind(remote_connection.listen_string.as_str());
 
     if let Err(err) = &result {
