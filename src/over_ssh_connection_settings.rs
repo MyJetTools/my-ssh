@@ -1,4 +1,12 @@
+use std::collections::HashMap;
+
 use rust_extensions::{str_utils::StrUtils, url_utils::HostEndpoint};
+use serde::*;
+use tokio::sync::Mutex;
+
+lazy_static::lazy_static! {
+    pub static ref SSH_CREDENTIALS: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new()) ;
+}
 
 // To help parsing connection settings from string like "ssh://user:password@host:port->http://localhost:8080"
 pub struct OverSshConnectionSettings {
@@ -7,7 +15,10 @@ pub struct OverSshConnectionSettings {
 }
 
 impl OverSshConnectionSettings {
-    pub fn parse(src: &str) -> Self {
+    pub async fn parse(
+        src: &str,
+        ssh_credentials: Option<&HashMap<String, SshCredentialsSettingsModel>>,
+    ) -> Self {
         if !rust_extensions::str_utils::starts_with_case_insensitive(src, "ssh") {
             return Self {
                 ssh_credentials: None,
@@ -33,7 +44,7 @@ impl OverSshConnectionSettings {
         let right_part = right_part.unwrap();
 
         Self {
-            ssh_credentials: Some(parse_ssh_string(left_part)),
+            ssh_credentials: Some(parse_ssh_string(left_part, ssh_credentials).await),
             remote_resource_string: right_part.to_string(),
         }
     }
@@ -51,7 +62,10 @@ impl OverSshConnectionSettings {
 }
 
 // parsing line such as "ssh://username@host:port" or "ssh:username@host:port"
-fn parse_ssh_string(src: &str) -> crate::SshCredentials {
+async fn parse_ssh_string(
+    src: &str,
+    ssh_credentials: Option<&HashMap<String, SshCredentialsSettingsModel>>,
+) -> crate::SshCredentials {
     let split = src.split_2_or_3_lines(":");
 
     if split.is_none() {
@@ -75,26 +89,71 @@ fn parse_ssh_string(src: &str) -> crate::SshCredentials {
         user_name = &user_name[2..];
     }
 
+    let port = if let Some(port) = port {
+        port.parse().unwrap()
+    } else {
+        22
+    };
+
+    if let Some(ssh_credentials) = ssh_credentials {
+        if let Some(data) = ssh_credentials.get(src) {
+            let cert_content = load_cert(data, data.cert_path.as_str()).await;
+
+            return crate::SshCredentials::PrivateKey {
+                ssh_remote_host: host.to_string(),
+                ssh_remote_port: port,
+                ssh_user_name: user_name.to_string(),
+                private_key: cert_content,
+                passphrase: Some(data.cert_pass_prase.to_string()),
+            };
+        }
+    }
+
     crate::SshCredentials::SshAgent {
         ssh_remote_host: host.to_string(),
-        ssh_remote_port: if let Some(port) = port {
-            port.parse().unwrap()
-        } else {
-            22
-        },
+        ssh_remote_port: port,
         ssh_user_name: user_name.to_string(),
     }
+}
+
+async fn load_cert(data: &SshCredentialsSettingsModel, src: &str) -> String {
+    let mut ssh_credentials = SSH_CREDENTIALS.lock().await;
+    if let Some(cert_content) = ssh_credentials.get(src) {
+        return cert_content.to_string();
+    }
+    let file = rust_extensions::file_utils::format_path(data.cert_path.as_str());
+    let cert_content = tokio::fs::read_to_string(file.as_str()).await;
+
+    if let Err(err) = &cert_content {
+        panic!(
+            "Error reading certificate file: {}. Err: {:?}",
+            file.as_str(),
+            err
+        );
+    }
+
+    let cert_content = cert_content.unwrap();
+
+    ssh_credentials.insert(src.to_string(), cert_content.to_string());
+
+    cert_content
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SshCredentialsSettingsModel {
+    pub cert_path: String,
+    pub cert_pass_prase: String,
 }
 
 #[cfg(test)]
 mod tests {
     use super::OverSshConnectionSettings;
 
-    #[test]
-    fn test() {
+    #[tokio::test]
+    async fn test() {
         let settings = "ssh://root@localhost:222->http://localhost:8080";
 
-        let settings = OverSshConnectionSettings::parse(settings);
+        let settings = OverSshConnectionSettings::parse(settings, None).await;
 
         assert_eq!("http://localhost:8080", settings.remote_resource_string);
 
@@ -106,11 +165,11 @@ mod tests {
         assert_eq!(port, 222);
     }
 
-    #[test]
-    fn test_without_port_at_ssh() {
+    #[tokio::test]
+    async fn test_without_port_at_ssh() {
         let settings = "ssh://root@localhost->http://localhost:8080";
 
-        let settings = OverSshConnectionSettings::parse(settings);
+        let settings = OverSshConnectionSettings::parse(settings, None).await;
 
         assert_eq!("http://localhost:8080", settings.remote_resource_string);
 
