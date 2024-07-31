@@ -107,6 +107,18 @@ async fn parse_ssh_string(
                 passphrase: Some(data.cert_pass_prase.to_string()),
             };
         }
+
+        if let Some(data) = ssh_credentials.get("*") {
+            let cert_content = load_cert(data, data.cert_path.as_str()).await;
+
+            return crate::SshCredentials::PrivateKey {
+                ssh_remote_host: host.to_string(),
+                ssh_remote_port: port,
+                ssh_user_name: user_name.to_string(),
+                private_key: cert_content,
+                passphrase: Some(data.cert_pass_prase.to_string()),
+            };
+        }
     }
 
     crate::SshCredentials::SshAgent {
