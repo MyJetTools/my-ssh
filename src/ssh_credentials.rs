@@ -22,6 +22,31 @@ pub enum SshCredentials {
 }
 
 impl SshCredentials {
+    pub fn try_from_str(src: &str) -> Option<Self> {
+        let mut parts = src.split('@');
+
+        let user_name = parts.next()?;
+
+        let mut parts = parts.next()?.split(':');
+
+        let host = parts.next()?;
+
+        let port = if let Some(port) = parts.next() {
+            let port = port.parse::<u16>().ok()?;
+            port
+        } else {
+            22
+        };
+
+        let result = Self::SshAgent {
+            ssh_remote_host: host.to_string(),
+            ssh_remote_port: port,
+            ssh_user_name: user_name.to_string(),
+        };
+
+        Some(result)
+    }
+
     pub fn to_string(&self) -> String {
         match self {
             SshCredentials::SshAgent {
@@ -154,5 +179,22 @@ impl SshCredentials {
             SshCredentials::UserNameAndPassword { ssh_user_name, .. } => ssh_user_name.as_str(),
             SshCredentials::PrivateKey { ssh_user_name, .. } => ssh_user_name.as_str(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::SshCredentials;
+
+    #[test]
+    fn test_with_port() {
+        let ssh_credentials = SshCredentials::try_from_str("user@host:22").unwrap();
+        assert_eq!(ssh_credentials.to_string(), "user@host:22");
+    }
+
+    #[test]
+    fn test_without_port() {
+        let ssh_credentials = SshCredentials::try_from_str("user@host").unwrap();
+        assert_eq!(ssh_credentials.to_string(), "user@host:22");
     }
 }

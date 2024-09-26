@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use async_ssh2_lite::AsyncSession;
+use async_ssh2_lite::{AsyncSession, SessionConfiguration};
 
 use crate::{SshAsyncSession, SshCredentials, SshSession, SshSessionError, SshSessionWrapper};
 
@@ -47,9 +47,11 @@ pub async fn init_ssh_session(
             ssh_remote_port,
             ssh_user_name,
         } => {
+            let mut session_configuration = SessionConfiguration::new();
+            session_configuration.set_compress(true);
             let mut session = AsyncSession::<async_ssh2_lite::TokioTcpStream>::connect(
                 SocketAddr::new(ssh_remote_host.parse().unwrap(), *ssh_remote_port),
-                None,
+                Some(session_configuration),
             )
             .await?;
 
