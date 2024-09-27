@@ -22,7 +22,7 @@ pub enum SshCredentials {
 }
 
 impl SshCredentials {
-    pub fn try_from_str(src: &str) -> Option<Self> {
+    pub fn try_from_str(src: &str, auth_type: AuthenticationType) -> Option<Self> {
         let mut parts = src.split('@');
 
         let user_name = parts.next()?;
@@ -38,10 +38,28 @@ impl SshCredentials {
             22
         };
 
-        let result = Self::SshAgent {
-            ssh_remote_host: host.to_string(),
-            ssh_remote_port: port,
-            ssh_user_name: user_name.to_string(),
+        let result = match auth_type {
+            AuthenticationType::UserAgent => Self::SshAgent {
+                ssh_remote_host: host.to_string(),
+                ssh_remote_port: port,
+                ssh_user_name: user_name.to_string(),
+            },
+            AuthenticationType::UserNameAndPassword(password) => Self::UserNameAndPassword {
+                ssh_remote_host: host.to_string(),
+                ssh_remote_port: port,
+                ssh_user_name: user_name.to_string(),
+                password,
+            },
+            AuthenticationType::PrivateKey {
+                private_key_content,
+                pass_phrase,
+            } => Self::PrivateKey {
+                ssh_remote_host: host.to_string(),
+                ssh_remote_port: port,
+                ssh_user_name: user_name.to_string(),
+                private_key: private_key_content,
+                passphrase: pass_phrase,
+            },
         };
 
         Some(result)
@@ -182,19 +200,32 @@ impl SshCredentials {
     }
 }
 
+pub enum AuthenticationType {
+    UserAgent,
+    UserNameAndPassword(String),
+    PrivateKey {
+        private_key_content: String,
+        pass_phrase: Option<String>,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use crate::SshCredentials;
 
     #[test]
     fn test_with_port() {
-        let ssh_credentials = SshCredentials::try_from_str("user@host:22").unwrap();
+        let ssh_credentials =
+            SshCredentials::try_from_str("user@host:22", crate::AuthenticationType::UserAgent)
+                .unwrap();
         assert_eq!(ssh_credentials.to_string(), "user@host:22");
     }
 
     #[test]
     fn test_without_port() {
-        let ssh_credentials = SshCredentials::try_from_str("user@host").unwrap();
+        let ssh_credentials =
+            SshCredentials::try_from_str("user@host", crate::AuthenticationType::UserAgent)
+                .unwrap();
         assert_eq!(ssh_credentials.to_string(), "user@host:22");
     }
 }
