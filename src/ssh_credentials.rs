@@ -200,6 +200,7 @@ impl SshCredentials {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum SshAuthenticationType {
     UserAgent,
     UserNameAndPassword(String),
