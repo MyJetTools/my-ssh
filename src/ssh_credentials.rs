@@ -22,7 +22,7 @@ pub enum SshCredentials {
 }
 
 impl SshCredentials {
-    pub fn try_from_str(src: &str, auth_type: AuthenticationType) -> Option<Self> {
+    pub fn try_from_str(src: &str, auth_type: SshAuthenticationType) -> Option<Self> {
         let mut parts = src.split('@');
 
         let user_name = parts.next()?;
@@ -39,18 +39,18 @@ impl SshCredentials {
         };
 
         let result = match auth_type {
-            AuthenticationType::UserAgent => Self::SshAgent {
+            SshAuthenticationType::UserAgent => Self::SshAgent {
                 ssh_remote_host: host.to_string(),
                 ssh_remote_port: port,
                 ssh_user_name: user_name.to_string(),
             },
-            AuthenticationType::UserNameAndPassword(password) => Self::UserNameAndPassword {
+            SshAuthenticationType::UserNameAndPassword(password) => Self::UserNameAndPassword {
                 ssh_remote_host: host.to_string(),
                 ssh_remote_port: port,
                 ssh_user_name: user_name.to_string(),
                 password,
             },
-            AuthenticationType::PrivateKey {
+            SshAuthenticationType::PrivateKey {
                 private_key_content,
                 pass_phrase,
             } => Self::PrivateKey {
@@ -200,7 +200,7 @@ impl SshCredentials {
     }
 }
 
-pub enum AuthenticationType {
+pub enum SshAuthenticationType {
     UserAgent,
     UserNameAndPassword(String),
     PrivateKey {
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn test_with_port() {
         let ssh_credentials =
-            SshCredentials::try_from_str("user@host:22", crate::AuthenticationType::UserAgent)
+            SshCredentials::try_from_str("user@host:22", crate::SshAuthenticationType::UserAgent)
                 .unwrap();
         assert_eq!(ssh_credentials.to_string(), "user@host:22");
     }
@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn test_without_port() {
         let ssh_credentials =
-            SshCredentials::try_from_str("user@host", crate::AuthenticationType::UserAgent)
+            SshCredentials::try_from_str("user@host", crate::SshAuthenticationType::UserAgent)
                 .unwrap();
         assert_eq!(ssh_credentials.to_string(), "user@host:22");
     }
