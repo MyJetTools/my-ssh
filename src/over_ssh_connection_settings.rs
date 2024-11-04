@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rust_extensions::{str_utils::StrUtils, url_utils::HostEndpoint};
+use rust_extensions::{remote_endpoint::RemoteEndpoint, str_utils::StrUtils};
 use serde::*;
 use tokio::sync::Mutex;
 
@@ -49,15 +49,8 @@ impl OverSshConnectionSettings {
         }
     }
 
-    pub fn get_remote_endpoint<'s>(&'s self) -> HostEndpoint<'s> {
-        if let Some(result) = HostEndpoint::new(&self.remote_resource_string) {
-            return result;
-        }
-
-        panic!(
-            "Invalid remote resource string: {}",
-            self.remote_resource_string
-        );
+    pub fn get_remote_endpoint<'s>(&'s self) -> RemoteEndpoint<'s> {
+        RemoteEndpoint::try_parse(&self.remote_resource_string).unwrap()
     }
 }
 
