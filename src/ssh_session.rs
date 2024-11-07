@@ -12,7 +12,7 @@ use crate::{
 use super::SshSessionError;
 
 pub struct SshSession {
-    inner: Mutex<SshSessionInner>,
+    inner: Arc<Mutex<SshSessionInner>>,
     credentials: Arc<SshCredentials>,
     pub id: i64,
     pub connected: UnsafeValue<bool>,
@@ -22,7 +22,7 @@ impl SshSession {
     pub fn new(credentials: Arc<SshCredentials>) -> Self {
         let id = DateTimeAsMicroseconds::now().unix_microseconds;
         Self {
-            inner: Mutex::new(SshSessionInner::new()),
+            inner: Arc::new(Mutex::new(SshSessionInner::new())),
             credentials,
             id,
             connected: UnsafeValue::new(true),
@@ -128,7 +128,8 @@ impl SshSession {
 
     pub async fn disconnect(&self, reason: &str) {
         let mut write_access = self.inner.lock().await;
-        write_access.disconnect(reason, self).await;
+        write_access.disconnect(reason).await;
+        self.connected.set_value(false);
     }
 
     pub fn is_connected(&self) -> bool {
@@ -144,18 +145,16 @@ impl SshSession {
         let result = tokio::time::timeout(connection_timeout, future).await;
 
         if result.is_err() {
-            inner
-                .disconnect("Timeout connecting to remote host", self)
-                .await;
+            inner.disconnect("Timeout connecting to remote host").await;
+            self.connected.set_value(false);
             return Err(SshSessionError::Timeout);
         }
 
         match result.unwrap() {
             Ok(result) => return Ok(result),
             Err(e) => {
-                inner
-                    .disconnect("Could not connect to remote host", self)
-                    .await;
+                inner.disconnect("Could not connect to remote host").await;
+                self.connected.set_value(false);
                 return Err(e);
             }
         }
@@ -178,5 +177,16 @@ impl SshSession {
         crate::port_forward::start(new_item.clone(), self.credentials.clone()).await?;
 
         Ok(new_item)
+    }
+}
+
+impl Drop for SshSession {
+    fn drop(&mut self) {
+        let inner = self.inner.clone();
+
+        tokio::spawn(async move {
+            let mut inner_access = inner.lock().await;
+            inner_access.disconnect("Shutting down").await;
+        });
     }
 }

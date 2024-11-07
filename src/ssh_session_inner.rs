@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use async_ssh2_lite::{AsyncSession, SessionConfiguration};
 
-use crate::{SshAsyncSession, SshCredentials, SshSession, SshSessionError, SshSessionWrapper};
+use crate::{SshAsyncSession, SshCredentials, SshSessionError, SshSessionWrapper};
 
 pub struct SshSessionInner {
     pub ssh_session: Option<Arc<SshSessionWrapper>>,
@@ -29,12 +29,10 @@ impl SshSessionInner {
         Ok(self.ssh_session.as_ref().unwrap().clone())
     }
 
-    pub async fn disconnect(&mut self, description: &str, host: &SshSession) {
+    pub async fn disconnect(&mut self, description: &str) {
         if let Some(session) = self.ssh_session.take() {
             session.disconnect(description).await;
         }
-
-        host.connected.set_value(false);
     }
 }
 
