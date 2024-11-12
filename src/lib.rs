@@ -26,5 +26,5 @@ mod over_ssh_connection_settings;
 pub use over_ssh_connection_settings::*;
 
 lazy_static::lazy_static! {
-    static ref SSH_SESSIONS_POOL: Arc<crate::SshSessionsPool> =  Arc::new(crate::SshSessionsPool::new());
+    pub static ref SSH_SESSIONS_POOL: Arc<crate::SshSessionsPool> =  Arc::new(crate::SshSessionsPool::new());
 }
