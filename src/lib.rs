@@ -12,7 +12,6 @@ pub use ssh_session_inner::*;
 mod ssh_session_wrapper;
 pub use ssh_session_wrapper::*;
 
-#[deprecated(note = "Please use SshAsyncChannel instead")]
 pub type SshAsyncSession = async_ssh2_lite::AsyncSession<async_ssh2_lite::TokioTcpStream>;
 
 pub type SshAsyncChannel = async_ssh2_lite::AsyncChannel<async_ssh2_lite::TokioTcpStream>;

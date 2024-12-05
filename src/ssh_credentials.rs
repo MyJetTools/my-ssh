@@ -200,7 +200,7 @@ impl SshCredentials {
     }
 
     pub fn into_with_private_key(
-        self,
+        &self,
         new_private_key: String,
         new_passphrase: Option<String>,
     ) -> Self {
@@ -210,9 +210,9 @@ impl SshCredentials {
                 ssh_remote_port,
                 ssh_user_name,
             } => SshCredentials::PrivateKey {
-                ssh_remote_host: ssh_remote_host,
-                ssh_remote_port: ssh_remote_port,
-                ssh_user_name: ssh_user_name,
+                ssh_remote_host: ssh_remote_host.to_string(),
+                ssh_remote_port: *ssh_remote_port,
+                ssh_user_name: ssh_user_name.to_string(),
                 private_key: new_private_key,
                 passphrase: new_passphrase,
             },
@@ -222,9 +222,9 @@ impl SshCredentials {
                 ssh_user_name,
                 password: _,
             } => SshCredentials::PrivateKey {
-                ssh_remote_host: ssh_remote_host,
-                ssh_remote_port: ssh_remote_port,
-                ssh_user_name: ssh_user_name,
+                ssh_remote_host: ssh_remote_host.to_string(),
+                ssh_remote_port: *ssh_remote_port,
+                ssh_user_name: ssh_user_name.to_string(),
                 private_key: new_private_key,
                 passphrase: new_passphrase,
             },
@@ -235,9 +235,9 @@ impl SshCredentials {
                 private_key: _,
                 passphrase: _,
             } => SshCredentials::PrivateKey {
-                ssh_remote_host: ssh_remote_host,
-                ssh_remote_port: ssh_remote_port,
-                ssh_user_name: ssh_user_name,
+                ssh_remote_host: ssh_remote_host.to_string(),
+                ssh_remote_port: *ssh_remote_port,
+                ssh_user_name: ssh_user_name.to_string(),
                 private_key: new_private_key,
                 passphrase: new_passphrase,
             },
