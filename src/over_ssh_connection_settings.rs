@@ -15,10 +15,7 @@ pub struct OverSshConnectionSettings {
 }
 
 impl OverSshConnectionSettings {
-    pub async fn parse(
-        src: &str,
-        ssh_credentials: Option<&HashMap<String, SshCredentialsSettingsModel>>,
-    ) -> Self {
+    pub async fn parse(src: &str) -> Self {
         if !rust_extensions::str_utils::starts_with_case_insensitive(src, "ssh") {
             return Self {
                 ssh_credentials: None,
@@ -44,7 +41,7 @@ impl OverSshConnectionSettings {
         let right_part = right_part.unwrap();
 
         Self {
-            ssh_credentials: Some(parse_ssh_string(left_part, ssh_credentials).await),
+            ssh_credentials: Some(parse_ssh_string(left_part).await),
             remote_resource_string: right_part.to_string(),
         }
     }
@@ -55,10 +52,7 @@ impl OverSshConnectionSettings {
 }
 
 // parsing line such as "ssh://username@host:port" or "ssh:username@host:port"
-async fn parse_ssh_string(
-    src: &str,
-    ssh_credentials: Option<&HashMap<String, SshCredentialsSettingsModel>>,
-) -> crate::SshCredentials {
+async fn parse_ssh_string(src: &str) -> crate::SshCredentials {
     let split = src.split_2_or_3_lines(":");
 
     if split.is_none() {
@@ -88,32 +82,6 @@ async fn parse_ssh_string(
         22
     };
 
-    if let Some(ssh_credentials) = ssh_credentials {
-        if let Some(data) = ssh_credentials.get(src) {
-            let cert_content = load_cert(data, data.cert_path.as_str()).await;
-
-            return crate::SshCredentials::PrivateKey {
-                ssh_remote_host: host.to_string(),
-                ssh_remote_port: port,
-                ssh_user_name: user_name.to_string(),
-                private_key: cert_content,
-                passphrase: Some(data.cert_pass_prase.to_string()),
-            };
-        }
-
-        if let Some(data) = ssh_credentials.get("*") {
-            let cert_content = load_cert(data, data.cert_path.as_str()).await;
-
-            return crate::SshCredentials::PrivateKey {
-                ssh_remote_host: host.to_string(),
-                ssh_remote_port: port,
-                ssh_user_name: user_name.to_string(),
-                private_key: cert_content,
-                passphrase: Some(data.cert_pass_prase.to_string()),
-            };
-        }
-    }
-
     crate::SshCredentials::SshAgent {
         ssh_remote_host: host.to_string(),
         ssh_remote_port: port,
@@ -121,7 +89,7 @@ async fn parse_ssh_string(
     }
 }
 
-async fn load_cert(data: &SshCredentialsSettingsModel, src: &str) -> String {
+pub async fn load_cert(data: &SshCredentialsSettingsModel, src: &str) -> String {
     let mut ssh_credentials = SSH_CREDENTIALS.lock().await;
     if let Some(cert_content) = ssh_credentials.get(src) {
         return cert_content.to_string();
@@ -158,7 +126,7 @@ mod tests {
     async fn test() {
         let settings = "ssh://root@localhost:222->http://localhost:8080";
 
-        let settings = OverSshConnectionSettings::parse(settings, None).await;
+        let settings = OverSshConnectionSettings::parse(settings).await;
 
         assert_eq!("http://localhost:8080", settings.remote_resource_string);
 
@@ -174,7 +142,7 @@ mod tests {
     async fn test_without_port_at_ssh() {
         let settings = "ssh://root@localhost->http://localhost:8080";
 
-        let settings = OverSshConnectionSettings::parse(settings, None).await;
+        let settings = OverSshConnectionSettings::parse(settings).await;
 
         assert_eq!("http://localhost:8080", settings.remote_resource_string);
 
