@@ -8,6 +8,17 @@ lazy_static::lazy_static! {
     pub static ref SSH_CREDENTIALS: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new()) ;
 }
 
+#[derive(Debug, Clone)]
+pub struct SshPrivateKey {
+    pub content: String,
+    pub pass_phrase: Option<String>,
+}
+
+#[async_trait::async_trait]
+pub trait SshPrivateKeyResolver {
+    async fn resolve_ssh_private_key(&self, ssh_line: &str) -> Option<SshPrivateKey>;
+}
+
 // To help parsing connection settings from string like "ssh://user:password@host:port->http://localhost:8080"
 pub struct OverSshConnectionSettings {
     pub ssh_credentials: Option<crate::SshCredentials>,
