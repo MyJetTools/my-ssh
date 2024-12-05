@@ -92,9 +92,6 @@ async fn server_loop(
         if let Err(err) = remote_channel {
             println!("Error connecting to remote host: {:?}", err);
             let _ = socket.shutdown().await;
-            ssh_session
-                .disconnect("Error connecting to remote host")
-                .await;
             continue;
         }
 
