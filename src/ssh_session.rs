@@ -21,6 +21,12 @@ pub struct SshSession {
 impl SshSession {
     pub fn new(credentials: Arc<SshCredentials>) -> Self {
         let id = DateTimeAsMicroseconds::now().unix_microseconds;
+
+        println!(
+            "Created ssh connection [{}]. {}",
+            credentials.to_string(),
+            id
+        );
         Self {
             inner: Arc::new(Mutex::new(SshSessionInner::new())),
             credentials,
@@ -184,7 +190,11 @@ impl Drop for SshSession {
     fn drop(&mut self) {
         let inner = self.inner.clone();
 
-        println!("Dropping Ssh Session [{}]", self.credentials.to_string());
+        println!(
+            "Dropping Ssh Session [{}]. {}",
+            self.credentials.to_string(),
+            self.id
+        );
 
         tokio::spawn(async move {
             let mut inner_access = inner.lock().await;
