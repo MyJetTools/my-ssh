@@ -15,7 +15,7 @@ pub struct OverSshConnectionSettings {
 }
 
 impl OverSshConnectionSettings {
-    pub async fn parse(src: &str) -> Self {
+    pub fn parse(src: &str) -> Self {
         if !rust_extensions::str_utils::starts_with_case_insensitive(src, "ssh") {
             return Self {
                 ssh_credentials: None,
@@ -41,7 +41,7 @@ impl OverSshConnectionSettings {
         let right_part = right_part.unwrap();
 
         Self {
-            ssh_credentials: Some(parse_ssh_string(left_part).await),
+            ssh_credentials: Some(parse_ssh_string(left_part)),
             remote_resource_string: right_part.to_string(),
         }
     }
@@ -52,7 +52,7 @@ impl OverSshConnectionSettings {
 }
 
 // parsing line such as "ssh://username@host:port" or "ssh:username@host:port"
-async fn parse_ssh_string(src: &str) -> crate::SshCredentials {
+fn parse_ssh_string(src: &str) -> crate::SshCredentials {
     let split = src.split_2_or_3_lines(":");
 
     if split.is_none() {
@@ -122,11 +122,11 @@ pub struct SshCredentialsSettingsModel {
 mod tests {
     use super::OverSshConnectionSettings;
 
-    #[tokio::test]
-    async fn test() {
+    #[test]
+    fn test() {
         let settings = "ssh://root@localhost:222->http://localhost:8080";
 
-        let settings = OverSshConnectionSettings::parse(settings).await;
+        let settings = OverSshConnectionSettings::parse(settings);
 
         assert_eq!("http://localhost:8080", settings.remote_resource_string);
 
@@ -138,11 +138,11 @@ mod tests {
         assert_eq!(port, 222);
     }
 
-    #[tokio::test]
-    async fn test_without_port_at_ssh() {
+    #[test]
+    fn test_without_port_at_ssh() {
         let settings = "ssh://root@localhost->http://localhost:8080";
 
-        let settings = OverSshConnectionSettings::parse(settings).await;
+        let settings = OverSshConnectionSettings::parse(settings);
 
         assert_eq!("http://localhost:8080", settings.remote_resource_string);
 
