@@ -198,6 +198,51 @@ impl SshCredentials {
             SshCredentials::PrivateKey { ssh_user_name, .. } => ssh_user_name.as_str(),
         }
     }
+
+    pub fn into_with_private_key(
+        self,
+        new_private_key: String,
+        new_passphrase: Option<String>,
+    ) -> Self {
+        match self {
+            SshCredentials::SshAgent {
+                ssh_remote_host,
+                ssh_remote_port,
+                ssh_user_name,
+            } => SshCredentials::PrivateKey {
+                ssh_remote_host: ssh_remote_host,
+                ssh_remote_port: ssh_remote_port,
+                ssh_user_name: ssh_user_name,
+                private_key: new_private_key,
+                passphrase: new_passphrase,
+            },
+            SshCredentials::UserNameAndPassword {
+                ssh_remote_host,
+                ssh_remote_port,
+                ssh_user_name,
+                password: _,
+            } => SshCredentials::PrivateKey {
+                ssh_remote_host: ssh_remote_host,
+                ssh_remote_port: ssh_remote_port,
+                ssh_user_name: ssh_user_name,
+                private_key: new_private_key,
+                passphrase: new_passphrase,
+            },
+            SshCredentials::PrivateKey {
+                ssh_remote_host,
+                ssh_remote_port,
+                ssh_user_name,
+                private_key: _,
+                passphrase: _,
+            } => SshCredentials::PrivateKey {
+                ssh_remote_host: ssh_remote_host,
+                ssh_remote_port: ssh_remote_port,
+                ssh_user_name: ssh_user_name,
+                private_key: new_private_key,
+                passphrase: new_passphrase,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
