@@ -126,7 +126,7 @@ pub async fn load_cert(data: &SshCredentialsSettingsModel, src: &str) -> String 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SshCredentialsSettingsModel {
     pub cert_path: String,
-    pub cert_pass_prase: String,
+    pub cert_pass_phrase: Option<String>,
 }
 
 #[cfg(test)]
