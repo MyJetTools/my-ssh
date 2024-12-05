@@ -21,8 +21,8 @@ mod port_forward;
 pub use port_forward::*;
 mod ssh_sessions_pool;
 pub use ssh_sessions_pool::*;
-mod over_ssh_connection_settings;
-pub use over_ssh_connection_settings::*;
+
+pub mod ssh_settings_model;
 
 lazy_static::lazy_static! {
     pub static ref SSH_SESSIONS_POOL: Arc<crate::SshSessionsPool> =  Arc::new(crate::SshSessionsPool::new());

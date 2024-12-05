@@ -1,22 +1,14 @@
 use std::collections::HashMap;
 
 use rust_extensions::{remote_endpoint::RemoteEndpoint, str_utils::StrUtils};
-use serde::*;
 use tokio::sync::Mutex;
+
+use crate::SshCredentials;
+
+use super::SshSecurityCredentialsResolver;
 
 lazy_static::lazy_static! {
     pub static ref SSH_CREDENTIALS: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new()) ;
-}
-
-#[derive(Debug, Clone)]
-pub struct SshPrivateKey {
-    pub content: String,
-    pub pass_phrase: Option<String>,
-}
-
-#[async_trait::async_trait]
-pub trait SshPrivateKeyResolver {
-    async fn resolve_ssh_private_key(&self, ssh_line: &str) -> Option<SshPrivateKey>;
 }
 
 // To help parsing connection settings from string like "ssh://user:password@host:port->http://localhost:8080"
@@ -60,6 +52,50 @@ impl OverSshConnectionSettings {
     pub fn get_remote_endpoint<'s>(&'s self) -> RemoteEndpoint<'s> {
         RemoteEndpoint::try_parse(&self.remote_resource_string).unwrap()
     }
+
+    pub async fn get_ssh_credentials(
+        &self,
+        security_credentials_resolver: Option<&impl SshSecurityCredentialsResolver>,
+    ) -> Option<crate::SshCredentials> {
+        let ssh_credentials = self.ssh_credentials.as_ref()?;
+
+        let security_credentials_resolver = match security_credentials_resolver {
+            Some(resolver) => resolver,
+            None => return ssh_credentials.clone().into(),
+        };
+
+        let id = ssh_credentials.to_string();
+        if let Some(private_key) = security_credentials_resolver
+            .resolve_ssh_private_key(&id)
+            .await
+        {
+            let host_port = ssh_credentials.get_host_port();
+            return SshCredentials::PrivateKey {
+                ssh_remote_host: host_port.0.to_string(),
+                ssh_remote_port: host_port.1,
+                ssh_user_name: ssh_credentials.get_user_name().to_string(),
+                private_key: private_key.content,
+                passphrase: private_key.pass_phrase,
+            }
+            .into();
+        }
+
+        if let Some(password) = security_credentials_resolver
+            .resolve_ssh_password(&id)
+            .await
+        {
+            let host_port = ssh_credentials.get_host_port();
+            return SshCredentials::UserNameAndPassword {
+                ssh_remote_host: host_port.0.to_string(),
+                ssh_remote_port: host_port.1,
+                ssh_user_name: ssh_credentials.get_user_name().to_string(),
+                password: password,
+            }
+            .into();
+        }
+
+        ssh_credentials.clone().into()
+    }
 }
 
 // parsing line such as "ssh://username@host:port" or "ssh:username@host:port"
@@ -97,30 +133,6 @@ fn parse_ssh_string(src: &str) -> crate::SshCredentials {
         ssh_remote_host: host.to_string(),
         ssh_remote_port: port,
         ssh_user_name: user_name.to_string(),
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SshPrivateKeySettingsModel {
-    pub cert_path: String,
-    pub cert_pass_phrase: Option<String>,
-}
-
-impl SshPrivateKeySettingsModel {
-    pub async fn load_cert(&self) -> String {
-        let file = rust_extensions::file_utils::format_path(self.cert_path.as_str());
-        let cert_content = tokio::fs::read_to_string(file.as_str()).await;
-
-        if let Err(err) = &cert_content {
-            panic!(
-                "Error reading certificate file: {}. Err: {:?}",
-                file.as_str(),
-                err
-            );
-        }
-
-        let cert_content = cert_content.unwrap();
-        cert_content
     }
 }
 
