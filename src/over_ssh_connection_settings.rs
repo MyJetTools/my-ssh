@@ -100,33 +100,28 @@ fn parse_ssh_string(src: &str) -> crate::SshCredentials {
     }
 }
 
-pub async fn load_cert(data: &SshCredentialsSettingsModel, src: &str) -> String {
-    let mut ssh_credentials = SSH_CREDENTIALS.lock().await;
-    if let Some(cert_content) = ssh_credentials.get(src) {
-        return cert_content.to_string();
-    }
-    let file = rust_extensions::file_utils::format_path(data.cert_path.as_str());
-    let cert_content = tokio::fs::read_to_string(file.as_str()).await;
-
-    if let Err(err) = &cert_content {
-        panic!(
-            "Error reading certificate file: {}. Err: {:?}",
-            file.as_str(),
-            err
-        );
-    }
-
-    let cert_content = cert_content.unwrap();
-
-    ssh_credentials.insert(src.to_string(), cert_content.to_string());
-
-    cert_content
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SshCredentialsSettingsModel {
     pub cert_path: String,
     pub cert_pass_phrase: Option<String>,
+}
+
+impl SshCredentialsSettingsModel {
+    pub async fn load_cert(&self) -> String {
+        let file = rust_extensions::file_utils::format_path(self.cert_path.as_str());
+        let cert_content = tokio::fs::read_to_string(file.as_str()).await;
+
+        if let Err(err) = &cert_content {
+            panic!(
+                "Error reading certificate file: {}. Err: {:?}",
+                file.as_str(),
+                err
+            );
+        }
+
+        let cert_content = cert_content.unwrap();
+        cert_content
+    }
 }
 
 #[cfg(test)]
