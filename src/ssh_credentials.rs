@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SshCredentials {
     SshAgent {
         ssh_remote_host: String,
