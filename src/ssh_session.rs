@@ -184,6 +184,8 @@ impl Drop for SshSession {
     fn drop(&mut self) {
         let inner = self.inner.clone();
 
+        println!("Dropping Ssh Session [{}]", self.credentials.to_string());
+
         tokio::spawn(async move {
             let mut inner_access = inner.lock().await;
             inner_access.disconnect("Shutting down").await;
