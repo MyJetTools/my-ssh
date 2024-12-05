@@ -5,20 +5,20 @@ use rust_extensions::{date_time::DateTimeAsMicroseconds, StrOrString, UnsafeValu
 use tokio::sync::Mutex;
 
 use crate::{
-    RemotePortForwardError, SshAsyncChannel, SshCredentials, SshPortForwardTunnel, SshSessionInner,
-    SshSessionWrapper,
+    RemotePortForwardError, SshAsyncChannel, SshCredentials, SshPortForwardTunnel,
+    SshSessionSingleThreaded, SshSessionWrapper,
 };
 
 use super::SshSessionError;
 
-pub struct SshSession {
-    inner: Arc<Mutex<SshSessionInner>>,
-    credentials: Arc<SshCredentials>,
+pub struct SshSessionInnerL {
+    inner: Arc<Mutex<SshSessionSingleThreaded>>,
+    pub credentials: Arc<SshCredentials>,
     pub id: i64,
     pub connected: UnsafeValue<bool>,
 }
 
-impl SshSession {
+impl SshSessionInnerL {
     pub fn new(credentials: Arc<SshCredentials>) -> Self {
         let id = DateTimeAsMicroseconds::now().unix_microseconds;
 
@@ -28,15 +28,11 @@ impl SshSession {
             id
         );
         Self {
-            inner: Arc::new(Mutex::new(SshSessionInner::new())),
+            inner: Arc::new(Mutex::new(SshSessionSingleThreaded::new())),
             credentials,
             id,
             connected: UnsafeValue::new(true),
         }
-    }
-
-    pub fn get_ssh_credentials(&self) -> &Arc<SshCredentials> {
-        &self.credentials
     }
 
     pub async fn connect_to_remote_host(
@@ -52,99 +48,9 @@ impl SshSession {
             .await
     }
 
-    async fn get_home_variable(
-        &self,
-        ssh_session: &SshSessionWrapper,
-        inner: &mut SshSessionInner,
-        execute_timeout: Duration,
-    ) -> Result<String, SshSessionError> {
-        if inner.home_variable.is_none() {
-            let home_variable = ssh_session.execute_command("echo $HOME");
-
-            let (home_variable, _) = self
-                .execute_with_timeout(inner, home_variable, execute_timeout)
-                .await?;
-            inner.home_variable = Some(home_variable.trim().to_string());
-        }
-
-        Ok(inner.home_variable.as_ref().unwrap().to_string())
-    }
-
-    pub async fn download_remote_file(
-        &self,
-        path: &str,
-        execute_timeout: Duration,
-    ) -> Result<Vec<u8>, SshSessionError> {
-        let mut write_access = self.inner.lock().await;
-        let ssh_session = write_access.get(&self.credentials).await?;
-
-        let future = if path.starts_with("~") {
-            let home_variable = self
-                .get_home_variable(&ssh_session, &mut write_access, execute_timeout)
-                .await?;
-
-            let path = path.replace("~", home_variable.as_str());
-
-            ssh_session.download_remote_file(path.into())
-        } else {
-            ssh_session.download_remote_file(path.into())
-        };
-
-        self.execute_with_timeout(&mut write_access, future, execute_timeout)
-            .await
-    }
-
-    pub async fn upload_file(
-        &self,
-        remote_path: &str,
-        content: &[u8],
-        mode: i32,
-        execute_timeout: Duration,
-    ) -> Result<i32, SshSessionError> {
-        let mut write_access = self.inner.lock().await;
-        let ssh_session = write_access.get(&self.credentials).await?;
-
-        let future = if remote_path.starts_with("~") {
-            let home_variable = self
-                .get_home_variable(&ssh_session, &mut write_access, execute_timeout)
-                .await?;
-
-            let remote_path = remote_path.replace("~", home_variable.as_str());
-
-            ssh_session.upload_file(remote_path, content, mode)
-        } else {
-            ssh_session.upload_file(remote_path.to_string(), content, mode)
-        };
-
-        self.execute_with_timeout(&mut write_access, future, Duration::from_secs(10))
-            .await
-    }
-
-    pub async fn execute_command(
-        &self,
-        command: &str,
-        execute_timeout: Duration,
-    ) -> Result<(String, i32), SshSessionError> {
-        let mut write_access = self.inner.lock().await;
-        let ssh_session = write_access.get(&self.credentials).await?;
-        let future = ssh_session.execute_command(command);
-        self.execute_with_timeout(&mut write_access, future, execute_timeout)
-            .await
-    }
-
-    pub async fn disconnect(&self, reason: &str) {
-        let mut write_access = self.inner.lock().await;
-        write_access.disconnect(reason).await;
-        self.connected.set_value(false);
-    }
-
-    pub fn is_connected(&self) -> bool {
-        self.connected.get_value()
-    }
-
     async fn execute_with_timeout<TResult>(
         &self,
-        inner: &mut SshSessionInner,
+        inner: &mut SshSessionSingleThreaded,
         future: impl Future<Output = Result<TResult, SshSessionError>>,
         connection_timeout: Duration,
     ) -> Result<TResult, SshSessionError> {
@@ -166,6 +72,131 @@ impl SshSession {
         }
     }
 
+    pub async fn disconnect(&self, reason: &str) {
+        let mut write_access = self.inner.lock().await;
+        write_access.disconnect(reason).await;
+        self.connected.set_value(false);
+    }
+}
+
+pub struct SshSession {
+    pub inner: Arc<SshSessionInnerL>,
+}
+
+impl SshSession {
+    pub fn new(credentials: Arc<SshCredentials>) -> Self {
+        Self {
+            inner: Arc::new(SshSessionInnerL::new(credentials)),
+        }
+    }
+
+    pub fn get_ssh_credentials(&self) -> &Arc<SshCredentials> {
+        &self.inner.credentials
+    }
+
+    pub async fn connect_to_remote_host(
+        &self,
+        host: &str,
+        port: u16,
+        connection_timeout: Duration,
+    ) -> Result<SshAsyncChannel, SshSessionError> {
+        self.inner
+            .connect_to_remote_host(host, port, connection_timeout)
+            .await
+    }
+
+    async fn get_home_variable(
+        &self,
+        ssh_session: &SshSessionWrapper,
+        inner: &mut SshSessionSingleThreaded,
+        execute_timeout: Duration,
+    ) -> Result<String, SshSessionError> {
+        if inner.home_variable.is_none() {
+            let home_variable = ssh_session.execute_command("echo $HOME");
+
+            let (home_variable, _) = self
+                .inner
+                .execute_with_timeout(inner, home_variable, execute_timeout)
+                .await?;
+            inner.home_variable = Some(home_variable.trim().to_string());
+        }
+
+        Ok(inner.home_variable.as_ref().unwrap().to_string())
+    }
+
+    pub async fn download_remote_file(
+        &self,
+        path: &str,
+        execute_timeout: Duration,
+    ) -> Result<Vec<u8>, SshSessionError> {
+        let mut write_access = self.inner.inner.lock().await;
+        let ssh_session = write_access.get(&self.inner.credentials).await?;
+
+        let future = if path.starts_with("~") {
+            let home_variable = self
+                .get_home_variable(&ssh_session, &mut write_access, execute_timeout)
+                .await?;
+
+            let path = path.replace("~", home_variable.as_str());
+
+            ssh_session.download_remote_file(path.into())
+        } else {
+            ssh_session.download_remote_file(path.into())
+        };
+
+        self.inner
+            .execute_with_timeout(&mut write_access, future, execute_timeout)
+            .await
+    }
+
+    pub async fn upload_file(
+        &self,
+        remote_path: &str,
+        content: &[u8],
+        mode: i32,
+        execute_timeout: Duration,
+    ) -> Result<i32, SshSessionError> {
+        let mut write_access = self.inner.inner.lock().await;
+        let ssh_session = write_access.get(&self.inner.credentials).await?;
+
+        let future = if remote_path.starts_with("~") {
+            let home_variable = self
+                .get_home_variable(&ssh_session, &mut write_access, execute_timeout)
+                .await?;
+
+            let remote_path = remote_path.replace("~", home_variable.as_str());
+
+            ssh_session.upload_file(remote_path, content, mode)
+        } else {
+            ssh_session.upload_file(remote_path.to_string(), content, mode)
+        };
+
+        self.inner
+            .execute_with_timeout(&mut write_access, future, Duration::from_secs(10))
+            .await
+    }
+
+    pub async fn execute_command(
+        &self,
+        command: &str,
+        execute_timeout: Duration,
+    ) -> Result<(String, i32), SshSessionError> {
+        let mut write_access = self.inner.inner.lock().await;
+        let ssh_session = write_access.get(&self.inner.credentials).await?;
+        let future = ssh_session.execute_command(command);
+        self.inner
+            .execute_with_timeout(&mut write_access, future, execute_timeout)
+            .await
+    }
+
+    pub async fn disconnect(&self, reason: &str) {
+        self.inner.disconnect(reason).await;
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.inner.connected.get_value()
+    }
+
     pub async fn start_port_forward(
         &self,
         listen_host_port: impl Into<StrOrString<'static>>,
@@ -180,7 +211,7 @@ impl SshSession {
 
         let new_item = Arc::new(new_item);
 
-        crate::port_forward::start(new_item.clone(), self.credentials.clone()).await?;
+        crate::port_forward::start(new_item.clone(), self.inner.clone()).await?;
 
         Ok(new_item)
     }
@@ -192,12 +223,12 @@ impl Drop for SshSession {
 
         println!(
             "Dropping Ssh Session [{}]. {}",
-            self.credentials.to_string(),
-            self.id
+            self.inner.credentials.to_string(),
+            self.inner.id
         );
 
         tokio::spawn(async move {
-            let mut inner_access = inner.lock().await;
+            let mut inner_access = inner.inner.lock().await;
             inner_access.disconnect("Shutting down").await;
         });
     }

@@ -7,8 +7,8 @@ pub use ssh_session::*;
 
 mod ssh_credentials;
 pub use ssh_credentials::*;
-mod ssh_session_inner;
-pub use ssh_session_inner::*;
+mod ssh_session_single_threaded;
+pub use ssh_session_single_threaded::*;
 mod ssh_session_wrapper;
 pub use ssh_session_wrapper::*;
 

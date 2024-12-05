@@ -2,13 +2,13 @@ use std::{sync::Arc, time::Duration};
 
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 
-use crate::{ssh_credentials, RemotePortForwardError, SshAsyncChannel, SshSession};
+use crate::{RemotePortForwardError, SshAsyncChannel, SshSessionInnerL};
 
 use super::SshPortForwardTunnel;
 
 pub async fn start(
     remote_connection: Arc<SshPortForwardTunnel>,
-    ssh_credentials: Arc<ssh_credentials::SshCredentials>,
+    ssh_session: Arc<SshSessionInnerL>,
 ) -> Result<(), RemotePortForwardError> {
     let listener = TcpListener::bind(remote_connection.listen_string.as_str()).await;
 
@@ -24,7 +24,7 @@ pub async fn start(
     let handler = tokio::spawn(server_loop(
         listener,
         remote_connection.clone(),
-        ssh_credentials,
+        ssh_session,
     ));
 
     remote_connection.task.lock().await.replace(handler);
@@ -35,7 +35,7 @@ pub async fn start(
 async fn server_loop(
     listener: TcpListener,
     remote_connection: Arc<SshPortForwardTunnel>,
-    ssh_credentials: Arc<ssh_credentials::SshCredentials>,
+    ssh_session: Arc<SshSessionInnerL>,
 ) {
     while remote_connection.is_working() {
         let (mut socket, addr) = listener.accept().await.unwrap();
@@ -43,12 +43,10 @@ async fn server_loop(
             "Accepted connection from: {:?} to serve SSH port-forward: {}->{}->{}:{}",
             addr,
             remote_connection.listen_string,
-            ssh_credentials.to_string(),
+            ssh_session.credentials.to_string(),
             remote_connection.remote_host,
             remote_connection.remote_port
         );
-
-        let ssh_session = SshSession::new(ssh_credentials.clone());
 
         let remote_channel = ssh_session
             .connect_to_remote_host(

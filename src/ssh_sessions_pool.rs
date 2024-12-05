@@ -19,7 +19,9 @@ impl SshSessionsPool {
         let mut sessions = self.sessions.lock().await;
         for session in sessions.iter() {
             if session.get_ssh_credentials().are_same(ssh_credentials) {
-                return session.clone();
+                if session.is_connected() {
+                    return session.clone();
+                }
             }
         }
 

@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use rust_extensions::StrOrString;
 use tokio::sync::Mutex;
 
-use crate::{SshCredentials, SshPortForwardTunnel};
+use crate::{SshPortForwardTunnel, SshSessionInnerL};
 
 #[derive(Debug)]
 pub enum RemotePortForwardError {
@@ -14,13 +14,13 @@ pub enum RemotePortForwardError {
 
 pub struct SshPortForwardTunnelsPool {
     remote_connections: Mutex<BTreeMap<u16, Arc<SshPortForwardTunnel>>>,
-    ssh_credentials: Arc<SshCredentials>,
+    ssh_session: Arc<SshSessionInnerL>,
 }
 
 impl SshPortForwardTunnelsPool {
-    pub fn new(ssh_credentials: SshCredentials) -> Self {
+    pub fn new(ssh_session: Arc<SshSessionInnerL>) -> Self {
         Self {
-            ssh_credentials: Arc::new(ssh_credentials),
+            ssh_session,
             remote_connections: Mutex::new(BTreeMap::new()),
         }
     }
@@ -40,7 +40,7 @@ impl SshPortForwardTunnelsPool {
 
         let new_item = Arc::new(new_item);
 
-        super::start(new_item.clone(), self.ssh_credentials.clone()).await?;
+        super::start(new_item.clone(), self.ssh_session.clone()).await?;
 
         let old_item = connections_access.insert(listen_port, new_item);
 

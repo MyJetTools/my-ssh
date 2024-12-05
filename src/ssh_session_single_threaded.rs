@@ -4,12 +4,12 @@ use async_ssh2_lite::{AsyncSession, SessionConfiguration};
 
 use crate::{SshAsyncSession, SshCredentials, SshSessionError, SshSessionWrapper};
 
-pub struct SshSessionInner {
+pub struct SshSessionSingleThreaded {
     pub ssh_session: Option<Arc<SshSessionWrapper>>,
     pub home_variable: Option<String>,
 }
 
-impl SshSessionInner {
+impl SshSessionSingleThreaded {
     pub fn new() -> Self {
         Self {
             ssh_session: None,
