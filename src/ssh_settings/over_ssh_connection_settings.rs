@@ -18,6 +18,34 @@ pub struct OverSshConnectionSettings {
 }
 
 impl OverSshConnectionSettings {
+    pub fn try_parse(src: &str) -> Option<Self> {
+        if !rust_extensions::str_utils::starts_with_case_insensitive(src, "ssh") {
+            return Self {
+                ssh_credentials: None,
+                remote_resource_string: src.to_string(),
+            }
+            .into();
+        }
+
+        let (left_part, right_part) = src.split_up_to_2_lines("->")?;
+
+        if right_part.is_none() {
+            return Self {
+                ssh_credentials: None,
+                remote_resource_string: left_part.to_string(),
+            }
+            .into();
+        }
+
+        let right_part = right_part.unwrap();
+
+        Self {
+            ssh_credentials: Some(parse_ssh_string(left_part)),
+            remote_resource_string: right_part.to_string(),
+        }
+        .into()
+    }
+
     pub fn parse(src: &str) -> Self {
         if !rust_extensions::str_utils::starts_with_case_insensitive(src, "ssh") {
             return Self {
