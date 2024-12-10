@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use rust_extensions::{remote_endpoint::RemoteEndpoint, str_utils::StrUtils};
 use tokio::sync::Mutex;
@@ -13,7 +13,7 @@ lazy_static::lazy_static! {
 
 // To help parsing connection settings from string like "ssh://user:password@host:port->http://localhost:8080"
 pub struct OverSshConnectionSettings {
-    pub ssh_credentials: Option<crate::SshCredentials>,
+    pub ssh_credentials: Option<Arc<crate::SshCredentials>>,
     pub remote_resource_string: String,
 }
 
@@ -40,7 +40,7 @@ impl OverSshConnectionSettings {
         let right_part = right_part.unwrap();
 
         Self {
-            ssh_credentials: Some(parse_ssh_string(left_part)),
+            ssh_credentials: Some(parse_ssh_string(left_part).into()),
             remote_resource_string: right_part.to_string(),
         }
         .into()
@@ -72,7 +72,7 @@ impl OverSshConnectionSettings {
         let right_part = right_part.unwrap();
 
         Self {
-            ssh_credentials: Some(parse_ssh_string(left_part)),
+            ssh_credentials: Some(parse_ssh_string(left_part).into()),
             remote_resource_string: right_part.to_string(),
         }
     }
@@ -84,7 +84,7 @@ impl OverSshConnectionSettings {
     pub async fn get_ssh_credentials(
         &self,
         security_credentials_resolver: Option<&impl SshSecurityCredentialsResolver>,
-    ) -> Option<crate::SshCredentials> {
+    ) -> Option<Arc<crate::SshCredentials>> {
         let ssh_credentials = self.ssh_credentials.as_ref()?;
 
         let security_credentials_resolver = match security_credentials_resolver {
@@ -98,14 +98,16 @@ impl OverSshConnectionSettings {
             .await
         {
             let host_port = ssh_credentials.get_host_port();
-            return SshCredentials::PrivateKey {
-                ssh_remote_host: host_port.0.to_string(),
-                ssh_remote_port: host_port.1,
-                ssh_user_name: ssh_credentials.get_user_name().to_string(),
-                private_key: private_key.content,
-                passphrase: private_key.pass_phrase,
-            }
-            .into();
+            return Some(
+                SshCredentials::PrivateKey {
+                    ssh_remote_host: host_port.0.to_string(),
+                    ssh_remote_port: host_port.1,
+                    ssh_user_name: ssh_credentials.get_user_name().to_string(),
+                    private_key: private_key.content,
+                    passphrase: private_key.pass_phrase,
+                }
+                .into(),
+            );
         }
 
         if let Some(password) = security_credentials_resolver
@@ -113,13 +115,15 @@ impl OverSshConnectionSettings {
             .await
         {
             let host_port = ssh_credentials.get_host_port();
-            return SshCredentials::UserNameAndPassword {
-                ssh_remote_host: host_port.0.to_string(),
-                ssh_remote_port: host_port.1,
-                ssh_user_name: ssh_credentials.get_user_name().to_string(),
-                password: password,
-            }
-            .into();
+            return Some(
+                SshCredentials::UserNameAndPassword {
+                    ssh_remote_host: host_port.0.to_string(),
+                    ssh_remote_port: host_port.1,
+                    ssh_user_name: ssh_credentials.get_user_name().to_string(),
+                    password: password,
+                }
+                .into(),
+            );
         }
 
         ssh_credentials.clone().into()
