@@ -124,6 +124,21 @@ impl OverSshConnectionSettings {
 
         ssh_credentials.clone().into()
     }
+
+    pub fn to_string(&self) -> String {
+        match self.ssh_credentials.as_ref() {
+            Some(ssh_credentials) => {
+                format!(
+                    "ssh:{}@{}:{}->{}",
+                    ssh_credentials.get_user_name(),
+                    ssh_credentials.get_host_port().0,
+                    ssh_credentials.get_host_port().1,
+                    self.remote_resource_string
+                )
+            }
+            None => self.remote_resource_string.clone(),
+        }
+    }
 }
 
 // parsing line such as "ssh://username@host:port" or "ssh:username@host:port"
