@@ -12,6 +12,7 @@ lazy_static::lazy_static! {
 }
 
 // To help parsing connection settings from string like "ssh://user:password@host:port->http://localhost:8080"
+#[derive(Clone)]
 pub struct OverSshConnectionSettings {
     pub ssh_credentials: Option<Arc<crate::SshCredentials>>,
     pub remote_resource_string: String,
