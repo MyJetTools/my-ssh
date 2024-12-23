@@ -15,10 +15,11 @@ pub trait SshSecurityCredentialsResolver {
 
     async fn update_credentials(
         &self,
-        ssh_line: &str,
         ssh_credentials: Arc<SshCredentials>,
     ) -> Arc<SshCredentials> {
-        if let Some(private_key) = self.resolve_ssh_private_key(ssh_line).await {
+        let ssh_line = ssh_credentials.to_string();
+
+        if let Some(private_key) = self.resolve_ssh_private_key(&ssh_line).await {
             return Arc::new(SshCredentials::PrivateKey {
                 ssh_remote_host: ssh_credentials.get_host_port().0.to_string(),
                 ssh_remote_port: ssh_credentials.get_host_port().1,
@@ -28,7 +29,7 @@ pub trait SshSecurityCredentialsResolver {
             });
         }
 
-        if let Some(password) = self.resolve_ssh_password(ssh_line).await {
+        if let Some(password) = self.resolve_ssh_password(&ssh_line).await {
             return Arc::new(SshCredentials::UserNameAndPassword {
                 ssh_remote_host: ssh_credentials.get_host_port().0.to_string(),
                 ssh_remote_port: ssh_credentials.get_host_port().1,

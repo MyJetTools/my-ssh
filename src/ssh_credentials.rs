@@ -1,3 +1,5 @@
+use rust_extensions::ShortString;
+
 #[derive(Debug, Clone)]
 pub enum SshCredentials {
     SshAgent {
@@ -65,25 +67,46 @@ impl SshCredentials {
         Some(result)
     }
 
-    pub fn to_string(&self) -> String {
+    pub fn to_string(&self) -> ShortString {
         match self {
             SshCredentials::SshAgent {
                 ssh_remote_host,
                 ssh_remote_port,
                 ssh_user_name,
-            } => format!("{}@{}:{}", ssh_user_name, ssh_remote_host, ssh_remote_port),
+            } => {
+                let mut result = ShortString::from_str(ssh_user_name).unwrap();
+                result.push('@');
+                result.push_str(ssh_remote_host);
+                result.push(':');
+                result.push_str(ssh_remote_port.to_string().as_str());
+                result
+            }
             SshCredentials::UserNameAndPassword {
                 ssh_remote_host,
                 ssh_remote_port,
                 ssh_user_name,
                 ..
-            } => format!("{}@{}:{}", ssh_user_name, ssh_remote_host, ssh_remote_port),
+            } => {
+                let mut result = ShortString::from_str(ssh_user_name).unwrap();
+                result.push('@');
+                result.push_str(ssh_remote_host);
+                result.push(':');
+                result.push_str(ssh_remote_port.to_string().as_str());
+                result
+            }
             SshCredentials::PrivateKey {
                 ssh_remote_host,
                 ssh_remote_port,
                 ssh_user_name,
                 ..
-            } => format!("{}@{}:{}", ssh_user_name, ssh_remote_host, ssh_remote_port),
+            } => {
+                let mut result = ShortString::from_str(ssh_user_name).unwrap();
+                result.push('@');
+                result.push_str(ssh_remote_host);
+                result.push(':');
+                result.push_str(ssh_remote_port.to_string().as_str());
+                result
+            }
         }
     }
     pub fn are_same(&self, other: &SshCredentials) -> bool {
