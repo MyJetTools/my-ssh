@@ -287,7 +287,7 @@ mod tests {
         let ssh_credentials =
             SshCredentials::try_from_str("user@host:22", crate::SshAuthenticationType::SshAgent)
                 .unwrap();
-        assert_eq!(ssh_credentials.to_string(), "user@host:22");
+        assert_eq!(ssh_credentials.to_string().as_str(), "user@host:22");
     }
 
     #[test]
@@ -295,6 +295,6 @@ mod tests {
         let ssh_credentials =
             SshCredentials::try_from_str("user@host", crate::SshAuthenticationType::SshAgent)
                 .unwrap();
-        assert_eq!(ssh_credentials.to_string(), "user@host:22");
+        assert_eq!(ssh_credentials.to_string().as_str(), "user@host:22");
     }
 }

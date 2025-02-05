@@ -22,8 +22,36 @@ impl SshSessionInnerL {
     pub fn new(credentials: Arc<SshCredentials>) -> Self {
         let id = DateTimeAsMicroseconds::now().unix_microseconds;
 
+        let using = match credentials.as_ref() {
+            SshCredentials::SshAgent {
+                ssh_remote_host,
+                ssh_remote_port,
+                ssh_user_name,
+            } => "using ssh agent",
+            SshCredentials::UserNameAndPassword {
+                ssh_remote_host,
+                ssh_remote_port,
+                ssh_user_name,
+                password,
+            } => "using username and password",
+            SshCredentials::PrivateKey {
+                ssh_remote_host,
+                ssh_remote_port,
+                ssh_user_name,
+                private_key,
+                passphrase,
+            } => {
+                if passphrase.is_some() {
+                    "using private key protected with passphrase"
+                } else {
+                    "using private key not protected with no passphrase"
+                }
+            }
+        };
+
         println!(
-            "Created ssh connection [{}]. {}",
+            "Created ssh connection {} [{}]. {}",
+            using,
             credentials.to_string(),
             id
         );
