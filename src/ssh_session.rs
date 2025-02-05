@@ -24,21 +24,21 @@ impl SshSessionInnerL {
 
         let using = match credentials.as_ref() {
             SshCredentials::SshAgent {
-                ssh_remote_host,
-                ssh_remote_port,
-                ssh_user_name,
+                ssh_remote_host: _,
+                ssh_remote_port: _,
+                ssh_user_name: _,
             } => "using ssh agent",
             SshCredentials::UserNameAndPassword {
-                ssh_remote_host,
-                ssh_remote_port,
-                ssh_user_name,
-                password,
+                ssh_remote_host: _,
+                ssh_remote_port: _,
+                ssh_user_name: _,
+                password: _,
             } => "using username and password",
             SshCredentials::PrivateKey {
-                ssh_remote_host,
-                ssh_remote_port,
-                ssh_user_name,
-                private_key,
+                ssh_remote_host: _,
+                ssh_remote_port: _,
+                ssh_user_name: _,
+                private_key: _,
                 passphrase,
             } => {
                 if passphrase.is_some() {
