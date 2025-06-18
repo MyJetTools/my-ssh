@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 async-ssh2-lite = { version = "*", features = ["tokio"] }
-tokio = { version = "*", features = ["full"] }
+tokio = { version = "*", features = ["sync", "fs"] }
 rust-extensions = { tag = "0.1.5", git = "https://github.com/MyJetTools/rust-extensions.git" }
 futures = "*"
 ssh2 = "*"
