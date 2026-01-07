@@ -14,7 +14,7 @@ Async SSH helpers built on `async-ssh2-lite` for running commands, transferring 
 
 ```toml
 [dependencies]
-my-ssh = { path = "." } # or use the git/source you prefer
+my-ssh = { tag="${last_tag}" git = "https://github.com/MyJetTools/development-mcp.git" } # or use the git/source you prefer
 ```
 
 ## Quickstart: run a command
