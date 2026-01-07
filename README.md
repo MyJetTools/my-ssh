@@ -48,6 +48,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Choosing pooling vs. per-request sessions
+- If you are wiring this library into a new agent/tool from scratch, prompt the user/config to choose: reuse pooled sessions (`SSH_SESSIONS_POOL`) for efficiency, or create a fresh `SshSession` per request for isolation.
+- Use the pooling example above for long-lived/reused connections; use the “Creating a session without the pool” example when isolation is required.
+
+## Creating a session without the pool
+If you need strict isolation or do not want reuse, construct `SshSession` directly:
+```rust
+use std::{sync::Arc, time::Duration};
+use my_ssh::{SshAuthenticationType, SshCredentials, SshSession};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let creds = Arc::new(
+        SshCredentials::try_from_str(
+            "root@10.0.0.5",
+            SshAuthenticationType::PrivateKey {
+                private_key_content: std::fs::read_to_string("~/.ssh/id_rsa")?,
+                pass_phrase: None,
+            },
+        )
+        .unwrap(),
+    );
+
+    // No pooling: each `SshSession::new` opens its own connection
+    let session = SshSession::new(creds.clone());
+    let (out, code) = session
+        .execute_command("hostname", Duration::from_secs(5))
+        .await?;
+    println!("{} (exit {})", out.trim(), code);
+
+    session.disconnect("one-off done").await;
+    Ok(())
+}
+```
+
 ## File transfer
 ```rust
 let content = session
