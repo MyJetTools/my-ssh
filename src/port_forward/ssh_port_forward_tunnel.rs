@@ -2,22 +2,21 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::sync::Mutex;
 
+use super::ForwardTarget;
+
 pub struct SshPortForwardTunnel {
     pub listen_string: String,
-    pub remote_host: String,
-    pub remote_port: u16,
+    pub target: ForwardTarget,
     pub working: AtomicBool,
     pub task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl SshPortForwardTunnel {
-    pub fn new(listen_string: String, remote_host: String, remote_port: u16) -> Self {
+    pub fn new(listen_string: String, target: ForwardTarget) -> Self {
         Self {
             listen_string,
-            remote_host,
-            remote_port,
+            target,
             working: AtomicBool::new(true),
-
             task: Mutex::new(None),
         }
     }

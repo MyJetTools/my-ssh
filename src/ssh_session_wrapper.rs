@@ -1,116 +1,183 @@
-use std::path::Path;
+use std::sync::Arc;
 
-use async_ssh2_lite::util::ConnectInfo;
-use futures::AsyncReadExt;
-use rust_extensions::StrOrString;
-use tokio::io::AsyncWriteExt;
+use russh::ChannelMsg;
+use russh_sftp::client::fs::File;
+use russh_sftp::client::SftpSession;
+use russh_sftp::protocol::{FileAttributes, OpenFlags};
+use tokio::sync::Mutex;
 
-use crate::{SshAsyncChannel, SshAsyncSession, SshSessionError};
+use crate::{RemoteProcess, SshAsyncChannel, SshAsyncSession, SshSessionError};
 
 pub struct SshSessionWrapper {
     ssh_session: SshAsyncSession,
+    sftp: Mutex<Option<Arc<SftpSession>>>,
 }
+
 impl SshSessionWrapper {
     pub fn new(ssh_session: SshAsyncSession) -> Self {
-        Self { ssh_session }
-    }
-    pub async fn download_remote_file<'s>(
-        &self,
-        path: StrOrString<'s>,
-    ) -> Result<Vec<u8>, SshSessionError> {
-        let (mut remote_file, _) = self.ssh_session.scp_recv(Path::new(path.as_str())).await?;
-
-        let mut contents = Vec::new();
-        remote_file.read_to_end(&mut contents).await?;
-        remote_file.send_eof().await?;
-        remote_file.wait_eof().await?;
-        remote_file.close().await?;
-        remote_file.wait_close().await?;
-
-        Ok(contents)
+        Self {
+            ssh_session,
+            sftp: Mutex::new(None),
+        }
     }
 
-    pub async fn channel_direct_tcp_ip(
-        &self,
-        host: &str,
-        port: u16,
-    ) -> Result<SshAsyncChannel, SshSessionError> {
-        let result = self
-            .ssh_session
-            .channel_direct_tcpip(host, port, None)
-            .await?;
-
-        Ok(result)
+    pub fn is_closed(&self) -> bool {
+        self.ssh_session.is_closed()
     }
 
-    pub async fn start_port_forward(
-        &self,
-        remote_port: u16,
-        host: &str,
-        local_host: &str,
-    ) -> Result<(), SshSessionError> {
-        match local_host.parse() {
-            Ok(socket_addr) => {
-                self.ssh_session
-                    .remote_port_forwarding(
-                        remote_port,
-                        Some(host),
-                        None,
-                        ConnectInfo::Tcp(socket_addr),
-                    )
-                    .await?;
+    async fn sftp(&self) -> Result<Arc<SftpSession>, SshSessionError> {
+        let mut guard = self.sftp.lock().await;
+
+        if let Some(s) = guard.as_ref() {
+            return Ok(s.clone());
+        }
+
+        let channel = self.ssh_session.channel_open_session().await?;
+        channel.request_subsystem(true, "sftp").await?;
+        let sftp = SftpSession::new(channel.into_stream()).await?;
+        let arc = Arc::new(sftp);
+        *guard = Some(arc.clone());
+        Ok(arc)
+    }
+
+    pub async fn mkdir_recursive(&self, path: String) -> Result<(), SshSessionError> {
+        let sftp = self.sftp().await?;
+        let absolute = path.starts_with('/');
+        let mut current = if absolute {
+            String::from("/")
+        } else {
+            String::new()
+        };
+
+        for component in path.split('/').filter(|c| !c.is_empty()) {
+            if !current.is_empty() && !current.ends_with('/') {
+                current.push('/');
             }
-            Err(err) => {
-                return Err(SshSessionError::Other(format!(
-                    "Error parsing  ssh local address: {}",
-                    err
-                )))
+            current.push_str(component);
+
+            if !sftp.try_exists(current.as_str()).await? {
+                sftp.create_dir(current.as_str()).await?;
             }
         }
 
         Ok(())
     }
 
-    pub async fn execute_command(&self, command: &str) -> Result<(String, i32), SshSessionError> {
-        let mut channel = self.ssh_session.channel_session().await?;
-
-        channel.exec(command).await?;
-
-        let mut result = String::new();
-        channel.read_to_string(&mut result).await?;
-
-        channel.wait_close().await?;
-
-        Ok((result, channel.exit_status()?))
-    }
-
-    pub async fn upload_file(
+    pub async fn open_file(
         &self,
-        remote_path: String,
-        content: &[u8],
-        mode: i32,
-    ) -> Result<i32, SshSessionError> {
-        let mut remote_file = self
-            .ssh_session
-            .scp_send(
-                Path::new(remote_path.as_str()),
-                mode,
-                content.len() as u64,
-                None,
-            )
-            .await?;
+        path: String,
+        flags: OpenFlags,
+        mode: Option<u32>,
+    ) -> Result<File, SshSessionError> {
+        let sftp = self.sftp().await?;
+        let file = sftp.open_with_flags(path.as_str(), flags).await?;
 
-        remote_file.write_all(content).await?;
-        // Close the channel and wait for the whole content to be transferred
-        remote_file.send_eof().await?;
-        remote_file.wait_eof().await?;
-        remote_file.close().await?;
-        remote_file.wait_close().await?;
+        if let Some(mode) = mode {
+            let mut attrs = FileAttributes::default();
+            attrs.permissions = Some(mode);
+            sftp.set_metadata(path.as_str(), attrs).await?;
+        }
 
-        Ok(remote_file.exit_status()?)
+        Ok(file)
     }
 
-    pub async fn disconnect(&self, description: &str) {
-        let _ = self.ssh_session.disconnect(None, description, None).await;
+    pub async fn list_dir(
+        &self,
+        path: String,
+    ) -> Result<Vec<(String, FileAttributes)>, SshSessionError> {
+        let sftp = self.sftp().await?;
+        let read_dir = sftp.read_dir(path.as_str()).await?;
+        Ok(read_dir.map(|entry| (entry.file_name(), entry.metadata())).collect())
+    }
+
+    pub async fn remove_file(&self, path: String) -> Result<(), SshSessionError> {
+        let sftp = self.sftp().await?;
+        sftp.remove_file(path.as_str()).await?;
+        Ok(())
+    }
+
+    pub async fn remove_dir(&self, path: String) -> Result<(), SshSessionError> {
+        let sftp = self.sftp().await?;
+        sftp.remove_dir(path.as_str()).await?;
+        Ok(())
+    }
+
+    pub async fn rename(&self, from: String, to: String) -> Result<(), SshSessionError> {
+        let sftp = self.sftp().await?;
+        sftp.rename(from, to).await?;
+        Ok(())
+    }
+
+    pub async fn metadata(&self, path: String) -> Result<FileAttributes, SshSessionError> {
+        let sftp = self.sftp().await?;
+        let meta = sftp.metadata(path.as_str()).await?;
+        Ok(meta)
+    }
+
+    pub async fn channel_direct_tcp_ip(
+        &self,
+        host: String,
+        port: u16,
+    ) -> Result<SshAsyncChannel, SshSessionError> {
+        let channel = self
+            .ssh_session
+            .channel_open_direct_tcpip(host, port as u32, "127.0.0.1".to_string(), 0)
+            .await?;
+        Ok(channel.into_stream())
+    }
+
+    pub async fn channel_direct_streamlocal(
+        &self,
+        socket_path: String,
+    ) -> Result<SshAsyncChannel, SshSessionError> {
+        let channel = self
+            .ssh_session
+            .channel_open_direct_streamlocal(socket_path)
+            .await?;
+        Ok(channel.into_stream())
+    }
+
+    pub async fn execute_command(
+        &self,
+        command: &str,
+    ) -> Result<(Vec<u8>, Vec<u8>, i32), SshSessionError> {
+        let mut channel = self.ssh_session.channel_open_session().await?;
+        channel.exec(true, command).await?;
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut exit_status: i32 = 0;
+
+        while let Some(msg) = channel.wait().await {
+            match msg {
+                ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
+                ChannelMsg::ExtendedData { ref data, ext } => {
+                    if ext == 1 {
+                        stderr.extend_from_slice(data);
+                    } else {
+                        stdout.extend_from_slice(data);
+                    }
+                }
+                ChannelMsg::ExitStatus { exit_status: code } => exit_status = code as i32,
+                ChannelMsg::Close => break,
+                _ => {}
+            }
+        }
+
+        Ok((stdout, stderr, exit_status))
+    }
+
+    pub async fn start_command(&self, command: &str) -> Result<RemoteProcess, SshSessionError> {
+        let channel = self.ssh_session.channel_open_session().await?;
+        channel.exec(true, command).await?;
+        Ok(RemoteProcess::start(channel))
+    }
+
+    pub async fn disconnect(&self, description: String) {
+        let _ = self
+            .ssh_session
+            .disconnect(russh::Disconnect::ByApplication, &description, "")
+            .await;
     }
 }
+

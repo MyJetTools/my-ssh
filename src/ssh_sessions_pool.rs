@@ -17,12 +17,17 @@ impl SshSessionsPool {
 
     pub async fn get_or_create(&self, ssh_credentials: &Arc<SshCredentials>) -> Arc<SshSession> {
         let mut sessions = self.sessions.lock().await;
-        for session in sessions.iter() {
-            if session.get_ssh_credentials().are_same(ssh_credentials) {
-                if session.is_connected() {
-                    return session.clone();
+        let mut i = 0;
+        while i < sessions.len() {
+            if sessions[i].get_ssh_credentials().are_same(ssh_credentials) {
+                if sessions[i].is_alive().await {
+                    return sessions[i].clone();
+                } else {
+                    sessions.swap_remove(i);
+                    continue;
                 }
             }
+            i += 1;
         }
 
         let session = Arc::new(SshSession::new(ssh_credentials.clone()));
@@ -33,11 +38,18 @@ impl SshSessionsPool {
     }
 
     pub async fn get(&self, ssh_credentials: &SshCredentials) -> Option<Arc<SshSession>> {
-        let sessions = self.sessions.lock().await;
-        for session in sessions.iter() {
-            if session.get_ssh_credentials().are_same(ssh_credentials) {
-                return Some(session.clone());
+        let mut sessions = self.sessions.lock().await;
+        let mut i = 0;
+        while i < sessions.len() {
+            if sessions[i].get_ssh_credentials().are_same(ssh_credentials) {
+                if sessions[i].is_alive().await {
+                    return Some(sessions[i].clone());
+                } else {
+                    sessions.swap_remove(i);
+                    continue;
+                }
             }
+            i += 1;
         }
         None
     }

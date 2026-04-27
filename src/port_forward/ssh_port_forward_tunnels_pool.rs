@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use rust_extensions::StrOrString;
 use tokio::sync::Mutex;
 
-use crate::{SshPortForwardTunnel, SshSessionInnerL};
+use crate::{ForwardTarget, SshPortForwardTunnel, SshSessionInnerL};
 
 #[derive(Debug)]
 pub enum RemotePortForwardError {
@@ -25,19 +25,46 @@ impl SshPortForwardTunnelsPool {
         }
     }
 
-    pub async fn add_remote_connection(
+    pub async fn add_tcp_target(
         &self,
         listen_host_port: impl Into<StrOrString<'static>>,
         remote_host: impl Into<String>,
         remote_port: u16,
     ) -> Result<Option<Arc<SshPortForwardTunnel>>, RemotePortForwardError> {
+        self.add(
+            listen_host_port,
+            ForwardTarget::Tcp {
+                host: remote_host.into(),
+                port: remote_port,
+            },
+        )
+        .await
+    }
+
+    pub async fn add_unix_target(
+        &self,
+        listen_host_port: impl Into<StrOrString<'static>>,
+        remote_socket_path: impl Into<String>,
+    ) -> Result<Option<Arc<SshPortForwardTunnel>>, RemotePortForwardError> {
+        self.add(
+            listen_host_port,
+            ForwardTarget::Unix {
+                socket_path: remote_socket_path.into(),
+            },
+        )
+        .await
+    }
+
+    async fn add(
+        &self,
+        listen_host_port: impl Into<StrOrString<'static>>,
+        target: ForwardTarget,
+    ) -> Result<Option<Arc<SshPortForwardTunnel>>, RemotePortForwardError> {
         let listen_host_port: StrOrString = listen_host_port.into();
         let listen_port = extract_port(listen_host_port.as_str())?;
 
         let mut connections_access = self.remote_connections.lock().await;
-        let new_item =
-            SshPortForwardTunnel::new(listen_host_port.into(), remote_host.into(), remote_port);
-
+        let new_item = SshPortForwardTunnel::new(listen_host_port.into(), target);
         let new_item = Arc::new(new_item);
 
         super::start(new_item.clone(), self.ssh_session.clone()).await?;

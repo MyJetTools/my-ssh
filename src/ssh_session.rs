@@ -1,12 +1,13 @@
 use std::{sync::Arc, time::Duration};
 
-use futures::Future;
-use rust_extensions::{date_time::DateTimeAsMicroseconds, StrOrString, UnsafeValue};
+use rust_extensions::{date_time::DateTimeAsMicroseconds, StrOrString};
+use russh_sftp::client::fs::File;
+use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use tokio::sync::Mutex;
 
 use crate::{
-    RemotePortForwardError, SshAsyncChannel, SshCredentials, SshPortForwardTunnel,
-    SshSessionSingleThreaded, SshSessionWrapper,
+    ForwardTarget, RemotePortForwardError, RemoteProcess, SshAsyncChannel, SshCredentials,
+    SshPortForwardTunnel, SshSessionSingleThreaded, SshSessionWrapper,
 };
 
 use super::SshSessionError;
@@ -15,7 +16,6 @@ pub struct SshSessionInnerL {
     inner: Arc<Mutex<SshSessionSingleThreaded>>,
     pub credentials: Arc<SshCredentials>,
     pub id: i64,
-    pub connected: UnsafeValue<bool>,
 }
 
 impl SshSessionInnerL {
@@ -23,28 +23,13 @@ impl SshSessionInnerL {
         let id = DateTimeAsMicroseconds::now().unix_microseconds;
 
         let using = match credentials.as_ref() {
-            SshCredentials::SshAgent {
-                ssh_remote_host: _,
-                ssh_remote_port: _,
-                ssh_user_name: _,
-            } => "using ssh agent",
-            SshCredentials::UserNameAndPassword {
-                ssh_remote_host: _,
-                ssh_remote_port: _,
-                ssh_user_name: _,
-                password: _,
-            } => "using username and password",
-            SshCredentials::PrivateKey {
-                ssh_remote_host: _,
-                ssh_remote_port: _,
-                ssh_user_name: _,
-                private_key: _,
-                passphrase,
-            } => {
+            SshCredentials::SshAgent { .. } => "using ssh agent",
+            SshCredentials::UserNameAndPassword { .. } => "using username and password",
+            SshCredentials::PrivateKey { passphrase, .. } => {
                 if passphrase.is_some() {
                     "using private key protected with passphrase"
                 } else {
-                    "using private key not protected with no passphrase"
+                    "using private key without passphrase"
                 }
             }
         };
@@ -55,55 +40,103 @@ impl SshSessionInnerL {
             credentials.to_string(),
             id
         );
+
         Self {
             inner: Arc::new(Mutex::new(SshSessionSingleThreaded::new())),
             credentials,
             id,
-            connected: UnsafeValue::new(true),
         }
     }
 
-    pub async fn connect_to_remote_host(
+    /// True if the session is either not yet opened (lazy) or its underlying
+    /// russh handle is still alive. Returns false only when we have an opened
+    /// handle that has been closed (e.g. by keepalive timeout).
+    pub async fn is_alive(&self) -> bool {
+        let guard = self.inner.lock().await;
+        match guard.ssh_session.as_ref() {
+            Some(wrapper) => !wrapper.is_closed(),
+            None => true,
+        }
+    }
+
+    pub async fn open_remote_tcp_stream(
         &self,
-        host: &str,
+        host: String,
         port: u16,
-        connection_timeout: Duration,
+        timeout: Duration,
     ) -> Result<SshAsyncChannel, SshSessionError> {
-        let mut write_access = self.inner.lock().await;
-        let ssh_session = write_access.get(&self.credentials).await?;
-        let future = ssh_session.channel_direct_tcp_ip(host, port);
-        self.execute_with_timeout(&mut write_access, future, connection_timeout)
-            .await
+        let wrapper = self.acquire().await?;
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, wrapper.channel_direct_tcp_ip(host, port)).await
+        });
+        unwrap_join_timeout(task.await)?
     }
 
-    async fn execute_with_timeout<TResult>(
+    pub async fn open_remote_unix_stream(
         &self,
-        inner: &mut SshSessionSingleThreaded,
-        future: impl Future<Output = Result<TResult, SshSessionError>>,
-        connection_timeout: Duration,
-    ) -> Result<TResult, SshSessionError> {
-        let result = tokio::time::timeout(connection_timeout, future).await;
+        socket_path: String,
+        timeout: Duration,
+    ) -> Result<SshAsyncChannel, SshSessionError> {
+        let wrapper = self.acquire().await?;
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, wrapper.channel_direct_streamlocal(socket_path)).await
+        });
+        unwrap_join_timeout(task.await)?
+    }
 
-        if result.is_err() {
-            inner.disconnect("Timeout connecting to remote host").await;
-            self.connected.set_value(false);
-            return Err(SshSessionError::Timeout);
+    async fn acquire(&self) -> Result<Arc<SshSessionWrapper>, SshSessionError> {
+        let mut guard = self.inner.lock().await;
+        guard.get(&self.credentials).await
+    }
+
+    pub async fn disconnect(&self, reason: String) {
+        let mut guard = self.inner.lock().await;
+        guard.disconnect(reason).await;
+    }
+
+    /// Resolves a path that may start with `~` to an absolute path on the
+    /// remote host, caching `$HOME` on first use.
+    async fn resolve_path(
+        &self,
+        wrapper: &Arc<SshSessionWrapper>,
+        path: &str,
+        timeout: Duration,
+    ) -> Result<String, SshSessionError> {
+        if !path.starts_with('~') {
+            return Ok(path.to_string());
         }
 
-        match result.unwrap() {
-            Ok(result) => return Ok(result),
-            Err(e) => {
-                inner.disconnect("Could not connect to remote host").await;
-                self.connected.set_value(false);
-                return Err(e);
+        let home = self.get_home_variable(wrapper, timeout).await?;
+        Ok(path.replacen('~', home.as_str(), 1))
+    }
+
+    async fn get_home_variable(
+        &self,
+        wrapper: &Arc<SshSessionWrapper>,
+        timeout: Duration,
+    ) -> Result<String, SshSessionError> {
+        {
+            let guard = self.inner.lock().await;
+            if let Some(home) = guard.home_variable.as_ref() {
+                return Ok(home.clone());
             }
         }
-    }
 
-    pub async fn disconnect(&self, reason: &str) {
-        let mut write_access = self.inner.lock().await;
-        write_access.disconnect(reason).await;
-        self.connected.set_value(false);
+        let wrapper_clone = wrapper.clone();
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, wrapper_clone.execute_command("echo $HOME")).await
+        });
+        let (stdout, _stderr, _exit) = unwrap_join_timeout(task.await)??;
+
+        let home = String::from_utf8_lossy(&stdout).trim().to_string();
+        if home.is_empty() {
+            return Err(SshSessionError::Other("could not resolve $HOME".to_string()));
+        }
+
+        let mut guard = self.inner.lock().await;
+        guard.home_variable = Some(home.clone());
+
+        Ok(home)
     }
 }
 
@@ -122,126 +155,221 @@ impl SshSession {
         &self.inner.credentials
     }
 
-    pub async fn connect_to_remote_host(
+    pub async fn is_alive(&self) -> bool {
+        self.inner.is_alive().await
+    }
+
+    /// Open a TCP-tunneled stream to `host:port` reachable from the SSH server.
+    /// Returns a tokio `AsyncRead + AsyncWrite + Unpin + Send + 'static` stream.
+    pub async fn open_remote_tcp_stream(
         &self,
         host: &str,
         port: u16,
-        connection_timeout: Duration,
+        timeout: Duration,
     ) -> Result<SshAsyncChannel, SshSessionError> {
         self.inner
-            .connect_to_remote_host(host, port, connection_timeout)
+            .open_remote_tcp_stream(host.to_string(), port, timeout)
             .await
     }
 
-    async fn get_home_variable(
+    /// Open a Unix-socket-tunneled stream to a remote `socket_path` on the SSH
+    /// server (uses OpenSSH `direct-streamlocal@openssh.com`).
+    pub async fn open_remote_unix_stream(
         &self,
-        ssh_session: &SshSessionWrapper,
-        inner: &mut SshSessionSingleThreaded,
-        execute_timeout: Duration,
-    ) -> Result<String, SshSessionError> {
-        if inner.home_variable.is_none() {
-            let home_variable = ssh_session.execute_command("echo $HOME");
-
-            let (home_variable, _) = self
-                .inner
-                .execute_with_timeout(inner, home_variable, execute_timeout)
-                .await?;
-            inner.home_variable = Some(home_variable.trim().to_string());
-        }
-
-        Ok(inner.home_variable.as_ref().unwrap().to_string())
+        socket_path: &str,
+        timeout: Duration,
+    ) -> Result<SshAsyncChannel, SshSessionError> {
+        let resolved = self.expand_tilde(socket_path, timeout).await?;
+        self.inner.open_remote_unix_stream(resolved, timeout).await
     }
 
-    pub async fn download_remote_file(
+    /// Create a remote directory (recursive, like `mkdir -p`). `~` is
+    /// expanded to the SSH user's home directory on the remote side.
+    pub async fn create_remote_dir(
         &self,
         path: &str,
-        execute_timeout: Duration,
-    ) -> Result<Vec<u8>, SshSessionError> {
-        let mut write_access = self.inner.inner.lock().await;
-        let ssh_session = write_access.get(&self.inner.credentials).await?;
-
-        let future = if path.starts_with("~") {
-            let home_variable = self
-                .get_home_variable(&ssh_session, &mut write_access, execute_timeout)
-                .await?;
-
-            let path = path.replace("~", home_variable.as_str());
-
-            ssh_session.download_remote_file(path.into())
-        } else {
-            ssh_session.download_remote_file(path.into())
-        };
-
-        self.inner
-            .execute_with_timeout(&mut write_access, future, execute_timeout)
-            .await
+        timeout: Duration,
+    ) -> Result<(), SshSessionError> {
+        let wrapper = self.inner.acquire().await?;
+        let resolved = self.inner.resolve_path(&wrapper, path, timeout).await?;
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, wrapper.mkdir_recursive(resolved)).await
+        });
+        unwrap_join_timeout(task.await)?
     }
 
-    pub async fn upload_file(
+    /// Open a remote file via SFTP. Returns a `RemoteFile` (alias for
+    /// `russh_sftp::client::fs::File`) that implements tokio
+    /// `AsyncRead + AsyncWrite + AsyncSeek`.
+    ///
+    /// `mode` is applied via SFTP `setstat` after the open and is only
+    /// useful when creating a new file (`OpenFlags::CREATE`).
+    pub async fn open_remote_file(
         &self,
-        remote_path: &str,
-        content: &[u8],
-        mode: i32,
-        execute_timeout: Duration,
-    ) -> Result<i32, SshSessionError> {
-        let mut write_access = self.inner.inner.lock().await;
-        let ssh_session = write_access.get(&self.inner.credentials).await?;
-
-        let future = if remote_path.starts_with("~") {
-            let home_variable = self
-                .get_home_variable(&ssh_session, &mut write_access, execute_timeout)
-                .await?;
-
-            let remote_path = remote_path.replace("~", home_variable.as_str());
-
-            ssh_session.upload_file(remote_path, content, mode)
-        } else {
-            ssh_session.upload_file(remote_path.to_string(), content, mode)
-        };
-
-        self.inner
-            .execute_with_timeout(&mut write_access, future, Duration::from_secs(10))
-            .await
+        path: &str,
+        flags: OpenFlags,
+        mode: Option<u32>,
+        timeout: Duration,
+    ) -> Result<File, SshSessionError> {
+        let wrapper = self.inner.acquire().await?;
+        let resolved = self.inner.resolve_path(&wrapper, path, timeout).await?;
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, wrapper.open_file(resolved, flags, mode)).await
+        });
+        unwrap_join_timeout(task.await)?
     }
 
+    /// List entries of a remote directory via SFTP. Returns
+    /// `(filename, FileAttributes)` pairs (skips `.` and `..`).
+    pub async fn list_remote_dir(
+        &self,
+        path: &str,
+        timeout: Duration,
+    ) -> Result<Vec<(String, FileAttributes)>, SshSessionError> {
+        let wrapper = self.inner.acquire().await?;
+        let resolved = self.inner.resolve_path(&wrapper, path, timeout).await?;
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, wrapper.list_dir(resolved)).await
+        });
+        unwrap_join_timeout(task.await)?
+    }
+
+    pub async fn remove_remote_file(
+        &self,
+        path: &str,
+        timeout: Duration,
+    ) -> Result<(), SshSessionError> {
+        let wrapper = self.inner.acquire().await?;
+        let resolved = self.inner.resolve_path(&wrapper, path, timeout).await?;
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, wrapper.remove_file(resolved)).await
+        });
+        unwrap_join_timeout(task.await)?
+    }
+
+    pub async fn remove_remote_dir(
+        &self,
+        path: &str,
+        timeout: Duration,
+    ) -> Result<(), SshSessionError> {
+        let wrapper = self.inner.acquire().await?;
+        let resolved = self.inner.resolve_path(&wrapper, path, timeout).await?;
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, wrapper.remove_dir(resolved)).await
+        });
+        unwrap_join_timeout(task.await)?
+    }
+
+    pub async fn rename_remote(
+        &self,
+        from: &str,
+        to: &str,
+        timeout: Duration,
+    ) -> Result<(), SshSessionError> {
+        let wrapper = self.inner.acquire().await?;
+        let from_resolved = self.inner.resolve_path(&wrapper, from, timeout).await?;
+        let to_resolved = self.inner.resolve_path(&wrapper, to, timeout).await?;
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, wrapper.rename(from_resolved, to_resolved)).await
+        });
+        unwrap_join_timeout(task.await)?
+    }
+
+    pub async fn remote_metadata(
+        &self,
+        path: &str,
+        timeout: Duration,
+    ) -> Result<FileAttributes, SshSessionError> {
+        let wrapper = self.inner.acquire().await?;
+        let resolved = self.inner.resolve_path(&wrapper, path, timeout).await?;
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, wrapper.metadata(resolved)).await
+        });
+        unwrap_join_timeout(task.await)?
+    }
+
+    /// One-shot exec: returns `(stdout, stderr, exit_code)`.
     pub async fn execute_command(
         &self,
         command: &str,
-        execute_timeout: Duration,
-    ) -> Result<(String, i32), SshSessionError> {
-        let mut write_access = self.inner.inner.lock().await;
-        let ssh_session = write_access.get(&self.inner.credentials).await?;
-        let future = ssh_session.execute_command(command);
-        self.inner
-            .execute_with_timeout(&mut write_access, future, execute_timeout)
+        timeout: Duration,
+    ) -> Result<(Vec<u8>, Vec<u8>, i32), SshSessionError> {
+        let wrapper = self.inner.acquire().await?;
+        let cmd = command.to_string();
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(timeout, async move {
+                wrapper.execute_command(&cmd).await
+            })
             .await
+        });
+        unwrap_join_timeout(task.await)?
+    }
+
+    /// Start an interactive remote process. The returned `RemoteProcess`
+    /// exposes stdout/stderr as `AsyncRead`, stdin as `AsyncWrite`, plus
+    /// `signal()` and `wait_exit()`.
+    pub async fn start_command(&self, command: &str) -> Result<RemoteProcess, SshSessionError> {
+        let wrapper = self.inner.acquire().await?;
+        wrapper.start_command(command).await
     }
 
     pub async fn disconnect(&self, reason: &str) {
-        self.inner.disconnect(reason).await;
+        self.inner.disconnect(reason.to_string()).await;
     }
 
-    pub fn is_connected(&self) -> bool {
-        self.inner.connected.get_value()
-    }
-
-    pub async fn start_port_forward(
+    /// Forward a local listener (`"host:port"` or `/path/to/sock`) to a TCP
+    /// target reachable from the SSH server.
+    pub async fn start_port_forward_to_tcp(
         &self,
         listen_host_port: impl Into<StrOrString<'static>>,
-        remote_host: impl Into<StrOrString<'static>>,
+        remote_host: impl Into<String>,
         remote_port: u16,
     ) -> Result<Arc<SshPortForwardTunnel>, RemotePortForwardError> {
-        let new_item = SshPortForwardTunnel::new(
-            listen_host_port.into().to_string(),
-            remote_host.into().to_string(),
-            remote_port,
-        );
+        self.start_port_forward(
+            listen_host_port,
+            ForwardTarget::Tcp {
+                host: remote_host.into(),
+                port: remote_port,
+            },
+        )
+        .await
+    }
 
+    /// Forward a local listener to a Unix socket on the SSH server (uses
+    /// `direct-streamlocal@openssh.com`).
+    pub async fn start_port_forward_to_unix(
+        &self,
+        listen_host_port: impl Into<StrOrString<'static>>,
+        remote_socket_path: impl Into<String>,
+    ) -> Result<Arc<SshPortForwardTunnel>, RemotePortForwardError> {
+        self.start_port_forward(
+            listen_host_port,
+            ForwardTarget::Unix {
+                socket_path: remote_socket_path.into(),
+            },
+        )
+        .await
+    }
+
+    async fn start_port_forward(
+        &self,
+        listen_host_port: impl Into<StrOrString<'static>>,
+        target: ForwardTarget,
+    ) -> Result<Arc<SshPortForwardTunnel>, RemotePortForwardError> {
+        let new_item = SshPortForwardTunnel::new(listen_host_port.into().to_string(), target);
         let new_item = Arc::new(new_item);
 
         crate::port_forward::start(new_item.clone(), self.inner.clone()).await?;
 
         Ok(new_item)
+    }
+
+    async fn expand_tilde(&self, path: &str, timeout: Duration) -> Result<String, SshSessionError> {
+        if !path.starts_with('~') {
+            return Ok(path.to_string());
+        }
+        let wrapper = self.inner.acquire().await?;
+        self.inner.resolve_path(&wrapper, path, timeout).await
     }
 }
 
@@ -257,7 +385,17 @@ impl Drop for SshSession {
 
         tokio::spawn(async move {
             let mut inner_access = inner.inner.lock().await;
-            inner_access.disconnect("Shutting down").await;
+            inner_access.disconnect("Shutting down".to_string()).await;
         });
+    }
+}
+
+fn unwrap_join_timeout<T>(
+    join_result: Result<Result<T, tokio::time::error::Elapsed>, tokio::task::JoinError>,
+) -> Result<T, SshSessionError> {
+    match join_result {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(_elapsed)) => Err(SshSessionError::Timeout),
+        Err(e) => Err(SshSessionError::Other(format!("join error: {:?}", e))),
     }
 }
