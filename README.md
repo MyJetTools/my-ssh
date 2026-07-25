@@ -1,9 +1,9 @@
 # my-ssh
 
-Тонкие async-обёртки над [`russh`](https://crates.io/crates/russh) +
-[`russh-sftp`](https://crates.io/crates/russh-sftp): дедуплицирующий
-пул сессий, ленивый коннект, SFTP, стримы для hyper, port-forwarding,
-exec one-shot и streaming.
+Thin async wrappers over [`russh`](https://crates.io/crates/russh) +
+[`russh-sftp`](https://crates.io/crates/russh-sftp): a deduplicating
+session pool, lazy connect, SFTP, hyper-friendly streams, port forwarding,
+and both one-shot and streaming exec.
 
 ## Install
 
@@ -12,11 +12,11 @@ exec one-shot и streaming.
 my-ssh = { tag = "${last_tag}", git = "git@github.com:MyJetTools/my-ssh.git" }
 ```
 
-## Сессии
+## Sessions
 
-Создаём `SshCredentials` и берём сессию из глобального пула. Если для
-тех же `(host, port, user)` + auth уже есть живая сессия — она
-переиспользуется. Если нет или прежняя умерла — открывается новая.
+Build `SshCredentials` and take a session from the global pool. If a live
+session already exists for the same `(host, port, user)` + auth, it is
+reused. If there is none, or the previous one died, a new one is opened.
 
 ```rust
 use std::{sync::Arc, time::Duration};
@@ -28,22 +28,22 @@ let creds = Arc::new(
 let session = SSH_SESSIONS_POOL.get_or_create(&creds).await;
 ```
 
-Auth-варианты:
+Auth options:
 
-* `SshAuthenticationType::SshAgent` — берём ключи из `$SSH_AUTH_SOCK` (unix-only).
+* `SshAuthenticationType::SshAgent` - keys are taken from `$SSH_AUTH_SOCK` (unix-only).
 * `SshAuthenticationType::UserNameAndPassword(password)`.
 * `SshAuthenticationType::PrivateKey { private_key_content, pass_phrase }`.
 
-Соединение открывается лениво — первое использование сессии
-триггерит handshake/auth. Heartbeat включён по умолчанию (russh
-`keepalive_interval = 30s`, `keepalive_max = 3`); пул отбрасывает
-сессии, у которых `russh::client::Handle::is_closed() == true`.
+The connection is opened lazily - the first use of a session triggers the
+handshake/auth. Heartbeat is on by default (russh
+`keepalive_interval = 30s`, `keepalive_max = 3`); the pool discards
+sessions whose `russh::client::Handle::is_closed()` is `true`.
 
 ## Exec
 
 ### One-shot
 
-Возвращает `(stdout, stderr, exit_code)` отдельными `Vec<u8>`:
+Returns `(stdout, stderr, exit_code)` as separate `Vec<u8>` values:
 
 ```rust
 let (stdout, stderr, exit) = session
@@ -54,9 +54,9 @@ assert_eq!(exit, 7);
 
 ### Streaming
 
-`start_command()` отдаёт `RemoteProcess` с раздельными stdout/stderr
-(`tokio::io::AsyncRead`), stdin (`AsyncWrite`), сигналом и
-ожиданием exit-кода:
+`start_command()` hands back a `RemoteProcess` with separate stdout/stderr
+(`tokio::io::AsyncRead`), stdin (`AsyncWrite`), a signal method, and a way
+to await the exit code:
 
 ```rust
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -78,21 +78,21 @@ out.read_to_string(&mut buf).await?;
 let exit = proc.wait_exit().await?;
 ```
 
-Прервать процесс:
+Terminating the process:
 
 ```rust
 use my_ssh::russh::Sig;
 proc.signal(Sig::TERM).await?;
 ```
 
-## Файловая система (SFTP)
+## File system (SFTP)
 
-Все методы поддерживают `~` / `~/...` — резолвится в `$HOME`
-удалённого пользователя (один `echo $HOME`, кэшируется на сессию).
+Every method accepts `~` / `~/...`, which resolves to the remote user's
+`$HOME` (a single `echo $HOME`, cached per session).
 
-### Создать папку
+### Create a directory
 
-`mkdir -p`-семантика, идемпотентно:
+`mkdir -p` semantics, idempotent:
 
 ```rust
 session
@@ -100,16 +100,16 @@ session
     .await?;
 ```
 
-### Открыть файл (хэндл, как `tokio::fs::File`)
+### Open a file (a handle, like `tokio::fs::File`)
 
-`open_remote_file` отдаёт `RemoteFile` (`russh_sftp::client::fs::File`),
-реализующий tokio `AsyncRead + AsyncWrite + AsyncSeek`.
+`open_remote_file` returns a `RemoteFile` (`russh_sftp::client::fs::File`)
+implementing tokio `AsyncRead + AsyncWrite + AsyncSeek`.
 
 ```rust
 use my_ssh::russh_sftp::protocol::OpenFlags;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-// Запись
+// Write
 let mut f = session
     .open_remote_file(
         "~/work/data/log.txt",
@@ -122,7 +122,7 @@ f.write_all(b"hello\n").await?;
 f.flush().await?;
 f.shutdown().await?;
 
-// Чтение
+// Read
 let mut f = session
     .open_remote_file("~/work/data/log.txt", OpenFlags::READ, None, Duration::from_secs(5))
     .await?;
@@ -130,7 +130,7 @@ let mut content = Vec::new();
 f.read_to_end(&mut content).await?;
 ```
 
-### Список папки
+### List a directory
 
 ```rust
 for (name, attrs) in session.list_remote_dir("~/work", Duration::from_secs(5)).await? {
@@ -138,7 +138,7 @@ for (name, attrs) in session.list_remote_dir("~/work", Duration::from_secs(5)).a
 }
 ```
 
-### Прочее
+### Everything else
 
 ```rust
 session.remove_remote_file("~/tmp/old.bin", t).await?;
@@ -147,33 +147,33 @@ session.rename_remote("~/a", "~/b", t).await?;
 let attrs = session.remote_metadata("~/work", t).await?;
 ```
 
-## Стримы (hyper-friendly)
+## Streams (hyper-friendly)
 
-### TCP-стрим к хосту, видимому SSH-серверу
+### TCP stream to a host visible from the SSH server
 
 ```rust
 let stream = session
     .open_remote_tcp_stream("172.17.0.2", 8080, Duration::from_secs(5))
     .await?;
 // stream: AsyncRead + AsyncWrite + Unpin + Send + 'static
-// можно кормить в hyper.handshake(stream).await?
+// can be fed straight into hyper.handshake(stream).await?
 ```
 
-### Unix-сокет на удалённой машине (Docker, PostgreSQL)
+### Unix socket on the remote machine (Docker, PostgreSQL)
 
 ```rust
 let stream = session
     .open_remote_unix_stream("/var/run/docker.sock", Duration::from_secs(5))
     .await?;
-// тот же AsyncRead + AsyncWrite — HTTP/1.1 поверх Docker engine API
+// the same AsyncRead + AsyncWrite - HTTP/1.1 over the Docker engine API
 ```
 
-## Port-forwarding (client → server)
+## Port forwarding (client to server)
 
-Только forward-направление: локально слушаем (TCP или Unix-socket),
-тоннелируем к удалённой стороне.
+Forward direction only: listen locally (TCP or unix socket) and tunnel to
+the remote side.
 
-### TCP-target
+### TCP target
 
 ```rust
 let tunnel = session
@@ -183,7 +183,7 @@ let tunnel = session
 tunnel.stop().await;
 ```
 
-`listen` начинающийся с `/` создаёт unix-listener:
+A `listen` value starting with `/` creates a unix listener:
 
 ```rust
 let tunnel = session
@@ -191,7 +191,7 @@ let tunnel = session
     .await?;
 ```
 
-### Unix-target (`direct-streamlocal@openssh.com`)
+### Unix target (`direct-streamlocal@openssh.com`)
 
 ```rust
 let tunnel = session
@@ -201,7 +201,7 @@ let tunnel = session
 
 ### Pool
 
-Несколько туннелей на одной сессии:
+Several tunnels over a single session:
 
 ```rust
 use my_ssh::SshPortForwardTunnelsPool;
@@ -211,7 +211,7 @@ pool.add_tcp_target("127.0.0.1:15432", "10.0.0.10", 5432).await?;
 pool.add_unix_target("/tmp/dock.sock", "/var/run/docker.sock").await?;
 ```
 
-## Парсинг `ssh://...->...` строк
+## Parsing `ssh://...->...` strings
 
 ```rust
 use my_ssh::ssh_settings::OverSshConnectionSettings;
@@ -222,45 +222,45 @@ let endpoint = parsed.get_remote_endpoint();
 
 ## Re-exports
 
-Если нужна экзотика — `russh::ChannelMsg`, `russh::Sig`,
-`russh_sftp::protocol::FileAttributes` и т.д. — они доступны через
-`my_ssh::russh::*` и `my_ssh::russh_sftp::*` (`pub extern crate`).
+When something exotic is needed - `russh::ChannelMsg`, `russh::Sig`,
+`russh_sftp::protocol::FileAttributes` and so on - it is reachable through
+`my_ssh::russh::*` and `my_ssh::russh_sftp::*` (`pub extern crate`).
 
-## Breaking changes 0.1.x → 0.2.0
+## Breaking changes 0.1.x to 0.2.0
 
-* Под капотом `russh` (pure Rust) вместо `async-ssh2-lite` / `ssh2`
-  (FFI поверх libssh2). Никакого C-FFI больше нет.
-* `SshAsyncChannel` теперь `russh::ChannelStream<russh::client::Msg>`
-  (**tokio** `AsyncRead + AsyncWrite`). Раньше был futures-based
-  канал из `async-ssh2-lite`.
-* `pub extern crate ssh2` исчез. Появились `pub extern crate russh`
-  и `pub extern crate russh_sftp`.
-* Файловые операции теперь по SFTP (раньше по SCP). Сервер должен
-  иметь включённый SFTP-subsystem (по умолчанию у sshd так и есть).
-* `connect_to_remote_host(...)` → `open_remote_tcp_stream(...)`.
-  Добавлен `open_remote_unix_stream(...)`.
-* `start_port_forward(...)` → `start_port_forward_to_tcp(...)` /
-  `start_port_forward_to_unix(...)`. У `SshPortForwardTunnelsPool`:
-  `add_remote_connection` → `add_tcp_target` / `add_unix_target`.
-* `download_remote_file` / `upload_file` удалены — заменены на
-  низкоуровневый `open_remote_file`, дальше пишет/читает пользователь
-  через tokio I/O.
-* `execute_command(cmd, timeout) -> (String, i32)` →
-  `(Vec<u8>, Vec<u8>, i32)` — stdout и stderr раздельно, в байтах.
-* Добавлены: `start_command` (streaming exec, `RemoteProcess`),
+* `russh` (pure Rust) under the hood instead of `async-ssh2-lite` / `ssh2`
+  (FFI over libssh2). There is no C FFI left.
+* `SshAsyncChannel` is now `russh::ChannelStream<russh::client::Msg>`
+  (**tokio** `AsyncRead + AsyncWrite`). It used to be a futures-based
+  channel from `async-ssh2-lite`.
+* `pub extern crate ssh2` is gone. `pub extern crate russh` and
+  `pub extern crate russh_sftp` took its place.
+* File operations now go over SFTP (they used to go over SCP). The server
+  must have the SFTP subsystem enabled, which is the sshd default.
+* `connect_to_remote_host(...)` became `open_remote_tcp_stream(...)`.
+  `open_remote_unix_stream(...)` was added.
+* `start_port_forward(...)` became `start_port_forward_to_tcp(...)` /
+  `start_port_forward_to_unix(...)`. On `SshPortForwardTunnelsPool`:
+  `add_remote_connection` became `add_tcp_target` / `add_unix_target`.
+* `download_remote_file` / `upload_file` were removed - replaced by the
+  low-level `open_remote_file`, after which the caller reads and writes
+  through tokio I/O.
+* `execute_command(cmd, timeout) -> (String, i32)` became
+  `(Vec<u8>, Vec<u8>, i32)` - stdout and stderr separately, as bytes.
+* Added: `start_command` (streaming exec, `RemoteProcess`),
   `create_remote_dir`, `list_remote_dir`, `remove_remote_file`,
   `remove_remote_dir`, `rename_remote`, `remote_metadata`.
-* `SshSession::is_connected()` → `is_alive() -> async bool`.
-  Опирается на `Handle::is_closed()`.
-* SSH heartbeat включён по умолчанию.
-* Unix-only (`SshAgent` использует `connect_env()` через
-  `$SSH_AUTH_SOCK`; Windows pageant пока не покрыт).
+* `SshSession::is_connected()` became `is_alive() -> async bool`, backed
+  by `Handle::is_closed()`.
+* SSH heartbeat is on by default.
+* Unix-only (`SshAgent` uses `connect_env()` through `$SSH_AUTH_SOCK`;
+  Windows pageant is not covered yet).
 
 ## Errors
 
-Все методы возвращают `Result<_, SshSessionError>` (или
-`RemotePortForwardError` у port-forward). Прозрачные варианты
-оборачивают upstream-ошибки:
+Every method returns `Result<_, SshSessionError>` (or
+`RemotePortForwardError` for port forwarding). Transparent variants wrap
+the upstream errors:
 
 ```rust
 pub enum SshSessionError {
