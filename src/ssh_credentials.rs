@@ -1,4 +1,4 @@
-use rust_extensions::ShortString;
+use rust_extensions::{ShortString, SHORT_STRING_MAX_LEN};
 
 #[derive(Debug, Clone)]
 pub enum SshCredentials {
@@ -67,47 +67,19 @@ impl SshCredentials {
         Some(result)
     }
 
+    // A line longer than the 255 bytes a ShortString holds is cut down to them.
     pub fn to_string(&self) -> ShortString {
-        match self {
-            SshCredentials::SshAgent {
-                ssh_remote_host,
-                ssh_remote_port,
-                ssh_user_name,
-            } => {
-                let mut result = ShortString::from_str(ssh_user_name).unwrap();
-                result.push('@');
-                result.push_str(ssh_remote_host);
-                result.push(':');
-                result.push_str(ssh_remote_port.to_string().as_str());
-                result
-            }
-            SshCredentials::UserNameAndPassword {
-                ssh_remote_host,
-                ssh_remote_port,
-                ssh_user_name,
-                ..
-            } => {
-                let mut result = ShortString::from_str(ssh_user_name).unwrap();
-                result.push('@');
-                result.push_str(ssh_remote_host);
-                result.push(':');
-                result.push_str(ssh_remote_port.to_string().as_str());
-                result
-            }
-            SshCredentials::PrivateKey {
-                ssh_remote_host,
-                ssh_remote_port,
-                ssh_user_name,
-                ..
-            } => {
-                let mut result = ShortString::from_str(ssh_user_name).unwrap();
-                result.push('@');
-                result.push_str(ssh_remote_host);
-                result.push(':');
-                result.push_str(ssh_remote_port.to_string().as_str());
-                result
-            }
+        let (host, port) = self.get_host_port();
+        let line = format!("{}@{}:{}", self.get_user_name(), host, port);
+
+        let mut len = line.len().min(SHORT_STRING_MAX_LEN);
+        while !line.is_char_boundary(len) {
+            len -= 1;
         }
+
+        let mut result = ShortString::new_empty();
+        result.try_push_str(&line[..len]);
+        result
     }
     pub fn are_same(&self, other: &SshCredentials) -> bool {
         match self {
@@ -296,5 +268,120 @@ mod tests {
             SshCredentials::try_from_str("user@host", crate::SshAuthenticationType::SshAgent)
                 .unwrap();
         assert_eq!(ssh_credentials.to_string().as_str(), "user@host:22");
+    }
+
+    fn ssh_agent(user_name: &str, host: &str) -> SshCredentials {
+        SshCredentials::SshAgent {
+            ssh_remote_host: host.to_string(),
+            ssh_remote_port: 22,
+            ssh_user_name: user_name.to_string(),
+        }
+    }
+
+    fn password(user_name: &str, host: &str) -> SshCredentials {
+        SshCredentials::UserNameAndPassword {
+            ssh_remote_host: host.to_string(),
+            ssh_remote_port: 22,
+            ssh_user_name: user_name.to_string(),
+            password: "password".to_string(),
+        }
+    }
+
+    fn private_key(user_name: &str, host: &str) -> SshCredentials {
+        SshCredentials::PrivateKey {
+            ssh_remote_host: host.to_string(),
+            ssh_remote_port: 22,
+            ssh_user_name: user_name.to_string(),
+            private_key: "private key".to_string(),
+            passphrase: None,
+        }
+    }
+
+    // A ShortString holds 255 bytes at most, so a longer line is cut down to them.
+    fn first_255_bytes(user_name: &str, host: &str) -> String {
+        format!("{}@{}:22", user_name, host)[..255].to_string()
+    }
+
+    #[test]
+    fn test_user_name_longer_than_255_bytes_with_ssh_agent() {
+        let user_name = "u".repeat(300);
+        assert_eq!(
+            ssh_agent(&user_name, "host").to_string().as_str(),
+            first_255_bytes(&user_name, "host")
+        );
+    }
+
+    #[test]
+    fn test_user_name_longer_than_255_bytes_with_password() {
+        let user_name = "u".repeat(300);
+        assert_eq!(
+            password(&user_name, "host").to_string().as_str(),
+            first_255_bytes(&user_name, "host")
+        );
+    }
+
+    #[test]
+    fn test_user_name_longer_than_255_bytes_with_private_key() {
+        let user_name = "u".repeat(300);
+        assert_eq!(
+            private_key(&user_name, "host").to_string().as_str(),
+            first_255_bytes(&user_name, "host")
+        );
+    }
+
+    // The user name and the host fit into 255 bytes each, but not together.
+    #[test]
+    fn test_user_name_and_host_longer_than_255_bytes_with_ssh_agent() {
+        let (user_name, host) = ("u".repeat(200), "h".repeat(100));
+        assert_eq!(
+            ssh_agent(&user_name, &host).to_string().as_str(),
+            first_255_bytes(&user_name, &host)
+        );
+    }
+
+    #[test]
+    fn test_user_name_and_host_longer_than_255_bytes_with_password() {
+        let (user_name, host) = ("u".repeat(200), "h".repeat(100));
+        assert_eq!(
+            password(&user_name, &host).to_string().as_str(),
+            first_255_bytes(&user_name, &host)
+        );
+    }
+
+    #[test]
+    fn test_user_name_and_host_longer_than_255_bytes_with_private_key() {
+        let (user_name, host) = ("u".repeat(200), "h".repeat(100));
+        assert_eq!(
+            private_key(&user_name, &host).to_string().as_str(),
+            first_255_bytes(&user_name, &host)
+        );
+    }
+
+    #[test]
+    fn test_line_of_255_bytes_is_not_cut() {
+        let user_name = "u".repeat(255 - "@host:22".len());
+        assert_eq!(
+            ssh_agent(&user_name, "host").to_string().as_str(),
+            format!("{}@host:22", user_name)
+        );
+    }
+
+    #[test]
+    fn test_line_of_256_bytes_is_cut() {
+        let user_name = "u".repeat(256 - "@host:22".len());
+        assert_eq!(
+            ssh_agent(&user_name, "host").to_string().as_str(),
+            first_255_bytes(&user_name, "host")
+        );
+    }
+
+    // 'é' takes two bytes, so byte 255 falls into the middle of a character.
+    #[test]
+    fn test_long_line_is_cut_at_a_char_boundary() {
+        let user_name = "é".repeat(150);
+        assert_eq!(
+            ssh_agent(&user_name, "host").to_string().as_str(),
+            "é".repeat(127)
+        );
     }
 }

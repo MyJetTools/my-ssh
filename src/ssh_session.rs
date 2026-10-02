@@ -399,3 +399,23 @@ fn unwrap_join_timeout<T>(
         Err(e) => Err(SshSessionError::Other(format!("join error: {:?}", e))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::{SshCredentials, SshSession};
+
+    // Both creating a session and dropping it print the credentials line.
+    #[tokio::test]
+    async fn test_session_with_user_name_longer_than_255_bytes() {
+        let credentials = SshCredentials::SshAgent {
+            ssh_remote_host: "127.0.0.1".to_string(),
+            ssh_remote_port: 22,
+            ssh_user_name: "u".repeat(300),
+        };
+
+        let session = SshSession::new(Arc::new(credentials));
+        drop(session);
+    }
+}

@@ -8,9 +8,6 @@ edition = "2021"
 [dependencies]
 russh = { version = "*", features = ["async-trait"] }
 russh-sftp = "*"
-# Pin pre-release to match russh's transitive expectations
-# (pkcs8 0.11.0-rc.X expects pkcs5 0.8.0-rc.X API; the stable 0.8.0 broke it)
-pkcs5 = "=0.8.0-rc.13"
 tokio = { version = "*", features = [
     "sync",
     "fs",

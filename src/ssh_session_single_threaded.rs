@@ -14,7 +14,7 @@ impl client::Handler for MySshClientHandler {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        _server_public_key: &russh::keys::PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
         Ok(true)
     }
@@ -241,4 +241,82 @@ async fn ssh_agent_authenticate(
     }
 
     Ok(session)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use tokio::net::TcpListener;
+
+    use crate::SshCredentials;
+
+    use super::init_ssh_session;
+
+    // The ssh host is a name, not an ip. Behind it stands a listener which is not
+    // an ssh server: it takes the connection and closes it. So the session fails
+    // to open, and the connection the listener got shows the name was resolved.
+    async fn open_session_by_host_name(
+        credentials: impl FnOnce(String, u16) -> SshCredentials,
+    ) -> (bool, bool) {
+        let listener = TcpListener::bind("localhost:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let connected = tokio::spawn(async move { listener.accept().await.is_ok() });
+
+        let credentials = Arc::new(credentials("localhost".to_string(), port));
+        let result = tokio::time::timeout(Duration::from_secs(10), init_ssh_session(&credentials))
+            .await
+            .expect("opening the session must not hang");
+
+        let connected = tokio::time::timeout(Duration::from_secs(10), connected)
+            .await
+            .expect("nothing has connected to the listener")
+            .unwrap();
+
+        (result.is_err(), connected)
+    }
+
+    #[tokio::test]
+    async fn test_host_name_with_ssh_agent() {
+        let (is_err, connected) = open_session_by_host_name(|host, port| SshCredentials::SshAgent {
+            ssh_remote_host: host,
+            ssh_remote_port: port,
+            ssh_user_name: "user".to_string(),
+        })
+        .await;
+
+        assert!(connected);
+        assert!(is_err);
+    }
+
+    #[tokio::test]
+    async fn test_host_name_with_password() {
+        let (is_err, connected) =
+            open_session_by_host_name(|host, port| SshCredentials::UserNameAndPassword {
+                ssh_remote_host: host,
+                ssh_remote_port: port,
+                ssh_user_name: "user".to_string(),
+                password: "password".to_string(),
+            })
+            .await;
+
+        assert!(connected);
+        assert!(is_err);
+    }
+
+    #[tokio::test]
+    async fn test_host_name_with_private_key() {
+        let (is_err, connected) =
+            open_session_by_host_name(|host, port| SshCredentials::PrivateKey {
+                ssh_remote_host: host,
+                ssh_remote_port: port,
+                ssh_user_name: "user".to_string(),
+                private_key: "not a key".to_string(),
+                passphrase: None,
+            })
+            .await;
+
+        assert!(connected);
+        assert!(is_err);
+    }
 }
