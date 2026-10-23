@@ -207,9 +207,20 @@ async fn ssh_agent_authenticate(
 ) -> Result<SshAsyncSession, SshSessionError> {
     let mut session = client::connect(config, addr, MySshClientHandler).await?;
 
+    #[cfg(unix)]
     let mut agent = AgentClient::connect_env()
         .await
         .map_err(SshSessionError::SshKeysError)?;
+
+    // The agent of OpenSSH for Windows listens on a named pipe; SSH_AUTH_SOCK, when set, names
+    // another one.
+    #[cfg(windows)]
+    let mut agent = AgentClient::connect_named_pipe(
+        std::env::var("SSH_AUTH_SOCK")
+            .unwrap_or_else(|_| r"\\.\pipe\openssh-ssh-agent".to_string()),
+    )
+    .await
+    .map_err(SshSessionError::SshKeysError)?;
     let identities = agent
         .request_identities()
         .await
