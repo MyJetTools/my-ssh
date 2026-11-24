@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-russh = { version = "*", features = ["async-trait"] }
+russh = "*"
 russh-sftp = "*"
 tokio = { version = "*", features = [
     "sync",
